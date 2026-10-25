@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { ShieldCheck, UserCheck, Menu, X, Landmark } from 'lucide-react';
 import { Role } from '../lib/types';
 import { getStoredRole, setStoredRole } from '../lib/api';
+import { NotificationBell } from './NotificationBell';
 
 export function Navbar() {
   const pathname = usePathname();
@@ -93,8 +94,10 @@ export function Navbar() {
             })}
           </nav>
 
-          {/* Role Switcher */}
+          {/* Role Switcher & Notifications */}
           <div className="flex items-center gap-3">
+            <NotificationBell />
+
             <div className="bg-gov-blue-950/80 border border-white/20 rounded-lg p-1 flex items-center gap-1 text-xs">
               <span className="text-[10px] uppercase font-bold text-blue-300 px-2 hidden lg:inline">
                 Active Role:

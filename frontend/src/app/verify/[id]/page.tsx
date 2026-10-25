@@ -23,6 +23,24 @@ import { StatusBadge } from '../../../components/StatusBadge';
 import { DemoBanner } from '../../../components/DemoBanner';
 import { formatDate, shortHash } from '../../../lib/utils';
 
+const EVENT_TYPE_LABELS: Record<string, { label: string; color: string }> = {
+  APPLICATION_CREATED: { label: 'Application Created', color: 'bg-blue-100 text-blue-800' },
+  DOCUMENT_UPLOADED: { label: 'Document Uploaded & Hashed', color: 'bg-emerald-100 text-emerald-800' },
+  EXTRACTION_COMPLETED: { label: 'AI Document Scrutiny & Extraction', color: 'bg-indigo-100 text-indigo-800' },
+  SCRUTINY_COMPLETED: { label: 'AICTE Rules Scrutiny Evaluated', color: 'bg-purple-100 text-purple-800' },
+  SCRUTINY_RULE_EVALUATION: { label: 'Scrutiny Rule Evaluation', color: 'bg-indigo-100 text-indigo-800' },
+  SCRUTINY_EVALUATED_DEFICIENT: { label: 'Scrutiny Deficiencies Recorded', color: 'bg-rose-100 text-rose-800' },
+  SCRUTINY_PASSED: { label: 'Scrutiny Criteria Passed', color: 'bg-emerald-100 text-emerald-800' },
+  SIGNOFF: { label: 'Officer Sign-Off (Confirmed)', color: 'bg-emerald-100 text-emerald-800' },
+  OVERRIDE: { label: 'Officer Regulatory Override', color: 'bg-amber-100 text-amber-800' },
+  COMPLIANCE_EXPIRY_WARNING: { label: 'Document Expiry Warning', color: 'bg-amber-100 text-amber-800' },
+  COMPLIANCE_DOCUMENT_OVERDUE: { label: 'Document Overdue Alert', color: 'bg-red-100 text-red-800' },
+  APPLICATION_LOCKED: { label: 'Application Locked (Compliance)', color: 'bg-red-100 text-red-800' },
+  WORKFLOW_STATE_ADVANCED: { label: 'Workflow State Advanced', color: 'bg-sky-100 text-sky-800' },
+  EVC_INSPECTION_COMPLETED: { label: 'EVC Inspection Completed', color: 'bg-purple-100 text-purple-800' },
+  EXECUTIVE_COMMITTEE_APPROVAL: { label: 'Executive Committee Approval', color: 'bg-emerald-100 text-emerald-800' },
+};
+
 export default function VerifyPage() {
   const params = useParams();
   const id = params?.id as string;
@@ -219,9 +237,19 @@ export default function VerifyPage() {
                       <span className="text-xs font-bold font-mono text-gov-blue-900 bg-white px-2 py-0.5 rounded border border-slate-200 shadow-xs">
                         Block #{idx + 1} ({entry.id})
                       </span>
-                      <span className="text-xs font-bold text-slate-700 bg-slate-200 px-2 py-0.5 rounded">
-                        {entry.eventType}
-                      </span>
+                      {EVENT_TYPE_LABELS[entry.eventType] ? (
+                        <span
+                          className={`text-xs font-bold px-2.5 py-0.5 rounded border border-current/10 ${
+                            EVENT_TYPE_LABELS[entry.eventType].color
+                          }`}
+                        >
+                          {EVENT_TYPE_LABELS[entry.eventType].label}
+                        </span>
+                      ) : (
+                        <span className="text-xs font-bold text-slate-700 bg-slate-200 px-2 py-0.5 rounded">
+                          {entry.eventType}
+                        </span>
+                      )}
                       {isTamperedEntry && (
                         <span className="text-[10px] font-bold uppercase bg-red-600 text-white px-1.5 py-0.5 rounded animate-pulse">
                           Tampered

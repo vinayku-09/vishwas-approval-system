@@ -1,5 +1,16 @@
-import { Application, ApplicationType, ExtractedFields, LedgerEntry, Status } from '../types.js';
+import {
+  Application,
+  ApplicationType,
+  ComplianceDocument,
+  DocumentMetadata,
+  ExtractedFields,
+  LedgerEntry,
+  Notification,
+  SignoffRecord,
+  Status,
+} from '../types.js';
 import { createLedgerEntry, GENESIS_HASH } from '../services/ledger.js';
+import { computeExpiryState } from '../services/expiry.js';
 
 export interface IStore {
   listApplications(filters?: { status?: Status; type?: ApplicationType }): Promise<Application[]>;
@@ -11,6 +22,25 @@ export interface IStore {
     actor?: string;
   }): Promise<Application>;
   updateApplication(id: string, updates: Partial<Application>): Promise<Application | null>;
+  
+  // Documents
+  saveDocument(doc: DocumentMetadata): Promise<DocumentMetadata>;
+  getDocuments(applicationId: string): Promise<DocumentMetadata[]>;
+
+  // Compliance
+  saveComplianceDocument(doc: ComplianceDocument): Promise<ComplianceDocument>;
+  getComplianceDocuments(applicationId?: string): Promise<ComplianceDocument[]>;
+
+  // Notifications
+  addNotification(notification: Notification): Promise<{ created: boolean; notification: Notification }>;
+  listNotifications(): Promise<Notification[]>;
+  markNotificationRead(id: string): Promise<boolean>;
+
+  // Signoff
+  recordSignoff(record: SignoffRecord): Promise<SignoffRecord>;
+  getSignoff(applicationId: string): Promise<SignoffRecord | null>;
+
+  // Ledger
   getLedger(applicationId: string): Promise<LedgerEntry[]>;
   recordLedger(
     applicationId: string,
@@ -24,6 +54,10 @@ export interface IStore {
 
 class InMemoryStore implements IStore {
   private applications: Map<string, Application> = new Map();
+  private documents: Map<string, DocumentMetadata[]> = new Map();
+  private complianceDocuments: Map<string, ComplianceDocument> = new Map();
+  private notifications: Map<string, Notification> = new Map();
+  private signoffs: Map<string, SignoffRecord> = new Map();
   private ledger: Map<string, LedgerEntry[]> = new Map();
 
   constructor() {
@@ -38,7 +72,6 @@ class InMemoryStore implements IStore {
     if (filters?.type) {
       list = list.filter((app) => app.type === filters.type);
     }
-    // Return newest first
     return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
@@ -59,8 +92,6 @@ class InMemoryStore implements IStore {
 
     const now = new Date();
     const createdAt = now.toISOString();
-
-    // AICTE SLA: 21 days for scrutiny and processing
     const slaDue = new Date(now.getTime() + 21 * 24 * 60 * 60 * 1000);
     const slaDueAt = slaDue.toISOString();
 
@@ -73,11 +104,11 @@ class InMemoryStore implements IStore {
       slaDueAt,
       extracted: data.extracted || {},
       deficiencies: [],
+      locked: false,
     };
 
     this.applications.set(id, application);
 
-    // Initial genesis ledger entry for application creation
     await this.recordLedger(
       id,
       'APPLICATION_CREATED',
@@ -101,11 +132,72 @@ class InMemoryStore implements IStore {
       ...app,
       ...updates,
       extracted: updates.extracted ? { ...app.extracted, ...updates.extracted } : app.extracted,
+      extractedDetails: updates.extractedDetails ?? app.extractedDetails,
       deficiencies: updates.deficiencies ?? app.deficiencies,
+      signoff: updates.signoff ?? app.signoff,
+      locked: updates.locked !== undefined ? updates.locked : app.locked,
     };
 
     this.applications.set(id, updated);
     return JSON.parse(JSON.stringify(updated));
+  }
+
+  async saveDocument(doc: DocumentMetadata): Promise<DocumentMetadata> {
+    const list = this.documents.get(doc.applicationId) || [];
+    list.push(doc);
+    this.documents.set(doc.applicationId, list);
+    return JSON.parse(JSON.stringify(doc));
+  }
+
+  async getDocuments(applicationId: string): Promise<DocumentMetadata[]> {
+    const list = this.documents.get(applicationId) || [];
+    return JSON.parse(JSON.stringify(list));
+  }
+
+  async saveComplianceDocument(doc: ComplianceDocument): Promise<ComplianceDocument> {
+    this.complianceDocuments.set(doc.id, JSON.parse(JSON.stringify(doc)));
+    return JSON.parse(JSON.stringify(doc));
+  }
+
+  async getComplianceDocuments(applicationId?: string): Promise<ComplianceDocument[]> {
+    let list = Array.from(this.complianceDocuments.values());
+    if (applicationId) {
+      list = list.filter((d) => d.applicationId === applicationId);
+    }
+    return JSON.parse(JSON.stringify(list));
+  }
+
+  async addNotification(notification: Notification): Promise<{ created: boolean; notification: Notification }> {
+    for (const existing of this.notifications.values()) {
+      if (existing.idempotencyKey === notification.idempotencyKey) {
+        return { created: false, notification: JSON.parse(JSON.stringify(existing)) };
+      }
+    }
+    this.notifications.set(notification.id, JSON.parse(JSON.stringify(notification)));
+    return { created: true, notification: JSON.parse(JSON.stringify(notification)) };
+  }
+
+  async listNotifications(): Promise<Notification[]> {
+    const list = Array.from(this.notifications.values());
+    return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async markNotificationRead(id: string): Promise<boolean> {
+    const n = this.notifications.get(id);
+    if (!n) return false;
+    n.read = true;
+    this.notifications.set(id, n);
+    return true;
+  }
+
+  async recordSignoff(record: SignoffRecord): Promise<SignoffRecord> {
+    this.signoffs.set(record.applicationId, JSON.parse(JSON.stringify(record)));
+    return JSON.parse(JSON.stringify(record));
+  }
+
+  async getSignoff(applicationId: string): Promise<SignoffRecord | null> {
+    const s = this.signoffs.get(applicationId);
+    return s ? JSON.parse(JSON.stringify(s)) : null;
   }
 
   async getLedger(applicationId: string): Promise<LedgerEntry[]> {
@@ -146,7 +238,6 @@ class InMemoryStore implements IStore {
     const targetIdx = Math.min(Math.max(0, index), chain.length - 1);
     const targetEntry = chain[targetIdx];
 
-    // Alter the payload without recalculating the hash to simulate unauthorized database modification
     targetEntry.payload = {
       ...targetEntry.payload,
       _tampered: true,
@@ -159,10 +250,24 @@ class InMemoryStore implements IStore {
 
   seed(): void {
     this.applications.clear();
+    this.documents.clear();
+    this.complianceDocuments.clear();
+    this.notifications.clear();
+    this.signoffs.clear();
     this.ledger.clear();
 
     const now = Date.now();
     const day = 24 * 60 * 60 * 1000;
+
+    // Helper date generator: e.g. now + 25 days
+    const inDays = (days: number) => {
+      const d = new Date(now + days * day);
+      return d.toISOString().split('T')[0];
+    };
+    const pastDays = (days: number) => {
+      const d = new Date(now - days * day);
+      return d.toISOString().split('T')[0];
+    };
 
     // 1. App 1: SUBMITTED (Fresh application, On time)
     const app1Id = 'APP-2024-001';
@@ -181,8 +286,52 @@ class InMemoryStore implements IStore {
         fireNocExpiry: '2028-06-30',
       },
       deficiencies: [],
+      locked: false,
     };
     this.applications.set(app1Id, app1);
+
+    const doc1: DocumentMetadata = {
+      id: `DOC-${app1Id}-1`,
+      applicationId: app1Id,
+      docType: 'LEASE_DEED',
+      fileName: 'registered_lease_deed_diat.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 2458900,
+      sha256: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+      storageUrl: '/uploads/registered_lease_deed_diat.pdf',
+      uploadedAt: app1Created,
+    };
+    const doc2: DocumentMetadata = {
+      id: `DOC-${app1Id}-2`,
+      applicationId: app1Id,
+      docType: 'FIRE_NOC',
+      fileName: 'fire_safety_noc_delhi.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 1042300,
+      sha256: '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8',
+      storageUrl: '/uploads/fire_safety_noc_delhi.pdf',
+      uploadedAt: app1Created,
+    };
+    this.documents.set(app1Id, [doc1, doc2]);
+
+    const comp1 = {
+      id: `COMP-${app1Id}-LEASE`,
+      applicationId: app1Id,
+      docType: 'LEASE_DEED' as const,
+      expiryDate: '2048-12-31',
+      ...computeExpiryState('2048-12-31', new Date(now)),
+      lastCheckedAt: new Date().toISOString(),
+    };
+    const comp2 = {
+      id: `COMP-${app1Id}-FIRE`,
+      applicationId: app1Id,
+      docType: 'FIRE_NOC' as const,
+      expiryDate: '2028-06-30',
+      ...computeExpiryState('2028-06-30', new Date(now)),
+      lastCheckedAt: new Date().toISOString(),
+    };
+    this.complianceDocuments.set(comp1.id, comp1);
+    this.complianceDocuments.set(comp2.id, comp2);
 
     const app1Entry = createLedgerEntry({
       id: `LEDGER-${app1Id}-1`,
@@ -199,11 +348,13 @@ class InMemoryStore implements IStore {
     });
     this.ledger.set(app1Id, [app1Entry]);
 
-    // 2. App 2: DEFICIENT (Failed AI scrutiny on land and NOC, Warning SLA)
+    // 2. App 2: DEFICIENT (Expired Fire NOC & Lease -> OVERDUE -> LOCKED)
     const app2Id = 'APP-2024-002';
     const app2Created = new Date(now - 16 * day).toISOString();
     const app2Sla = new Date(now + 5 * day).toISOString();
-    const app2ScrutinyTime = new Date(now - 14 * day).toISOString();
+    const app2ExpiredLease = pastDays(120);
+    const app2ExpiredNoc = pastDays(45);
+
     const app2: Application = {
       id: app2Id,
       institutionName: 'Kaveri Polytechnic & Technical Campus',
@@ -212,29 +363,72 @@ class InMemoryStore implements IStore {
       createdAt: app2Created,
       slaDueAt: app2Sla,
       extracted: {
-        landAreaSqm: 4200, // Deficient (< 6000)
-        leaseEndDate: '2024-01-15', // Expired
-        fireNocExpiry: '2024-02-28', // Expired
+        landAreaSqm: 4200,
+        leaseEndDate: app2ExpiredLease,
+        fireNocExpiry: app2ExpiredNoc,
       },
       deficiencies: [
         {
+          id: 'DEF-LAND-002',
           message: 'Land area of 4200 sq.m is below the AICTE minimum threshold of 6000 sq.m',
           clause: 'AICTE APH 2024-25 Clause 4.1',
           severity: 'CRITICAL',
+          confidence: 0.94,
+          sourcePage: 2,
+          evidence: 'Survey plan indicates net educational plot area of 4,200 sq.m.',
         },
         {
-          message: 'Land lease deed expired on 2024-01-15',
+          id: 'DEF-LEASE-002',
+          message: `Land lease deed expired on ${app2ExpiredLease}`,
           clause: 'AICTE APH 2024-25 Clause 4.3',
           severity: 'CRITICAL',
+          confidence: 0.91,
+          sourcePage: 4,
+          evidence: `The lease executed for 30 years expired on ${app2ExpiredLease}.`,
         },
         {
-          message: 'Fire and Life Safety NOC expired on 2024-02-28',
+          id: 'DEF-NOC-002',
+          message: `Fire and Life Safety NOC expired on ${app2ExpiredNoc}`,
           clause: 'AICTE APH 2024-25 Clause 5.2',
           severity: 'CRITICAL',
+          confidence: 0.88,
+          sourcePage: 1,
+          evidence: `Fire NOC valid through ${app2ExpiredNoc}.`,
         },
       ],
+      locked: true, // Locked due to overdue expired document
     };
     this.applications.set(app2Id, app2);
+
+    const compApp2_1 = {
+      id: `COMP-${app2Id}-LEASE`,
+      applicationId: app2Id,
+      docType: 'LEASE_DEED' as const,
+      expiryDate: app2ExpiredLease,
+      ...computeExpiryState(app2ExpiredLease, new Date(now)),
+      lastCheckedAt: new Date().toISOString(),
+    };
+    const compApp2_2 = {
+      id: `COMP-${app2Id}-FIRE`,
+      applicationId: app2Id,
+      docType: 'FIRE_NOC' as const,
+      expiryDate: app2ExpiredNoc,
+      ...computeExpiryState(app2ExpiredNoc, new Date(now)),
+      lastCheckedAt: new Date().toISOString(),
+    };
+    this.complianceDocuments.set(compApp2_1.id, compApp2_1);
+    this.complianceDocuments.set(compApp2_2.id, compApp2_2);
+
+    this.notifications.set(`NOTIF-${app2Id}-OVERDUE`, {
+      id: `NOTIF-${app2Id}-OVERDUE`,
+      applicationId: app2Id,
+      title: 'Application Locked: Document Expired',
+      message: `Fire safety certificate expired on ${app2ExpiredNoc}. Application ${app2Id} is automatically locked from workflow progression.`,
+      type: 'OVERDUE',
+      read: false,
+      createdAt: new Date(now - 1 * day).toISOString(),
+      idempotencyKey: `${compApp2_2.id}-OVERDUE`,
+    });
 
     const app2Entry1 = createLedgerEntry({
       id: `LEDGER-${app2Id}-1`,
@@ -256,15 +450,30 @@ class InMemoryStore implements IStore {
         deficienciesCount: 3,
         deficiencies: app2.deficiencies,
       },
-      timestamp: app2ScrutinyTime,
+      timestamp: new Date(now - 14 * day).toISOString(),
       prevHash: app2Entry1.hash,
     });
-    this.ledger.set(app2Id, [app2Entry1, app2Entry2]);
+    const app2Entry3 = createLedgerEntry({
+      id: `LEDGER-${app2Id}-3`,
+      applicationId: app2Id,
+      eventType: 'APPLICATION_LOCKED',
+      actor: 'system',
+      payload: {
+        reason: 'Expired compliance document detected during monitoring cycle',
+        documentId: compApp2_2.id,
+        expiryDate: app2ExpiredNoc,
+      },
+      timestamp: new Date(now - 1 * day).toISOString(),
+      prevHash: app2Entry2.hash,
+    });
+    this.ledger.set(app2Id, [app2Entry1, app2Entry2, app2Entry3]);
 
-    // 3. App 3: EVC_DONE (Expert Visit completed, ready for final decision)
+    // 3. App 3: EVC_DONE with document expiring in ~25 days (WARNING tier 30)
     const app3Id = 'APP-2024-003';
     const app3Created = new Date(now - 18 * day).toISOString();
     const app3Sla = new Date(now + 3 * day).toISOString();
+    const app3WarningNoc = inDays(25); // Expiring in 25 days!
+
     const app3: Application = {
       id: app3Id,
       institutionName: 'Himalayan Institute of Technology & Engineering',
@@ -275,11 +484,42 @@ class InMemoryStore implements IStore {
       extracted: {
         landAreaSqm: 14500,
         leaseEndDate: '2055-09-30',
-        fireNocExpiry: '2028-11-15',
+        fireNocExpiry: app3WarningNoc,
       },
       deficiencies: [],
+      locked: false,
     };
     this.applications.set(app3Id, app3);
+
+    const compApp3_1 = {
+      id: `COMP-${app3Id}-LEASE`,
+      applicationId: app3Id,
+      docType: 'LEASE_DEED' as const,
+      expiryDate: '2055-09-30',
+      ...computeExpiryState('2055-09-30', new Date(now)),
+      lastCheckedAt: new Date().toISOString(),
+    };
+    const compApp3_2 = {
+      id: `COMP-${app3Id}-FIRE`,
+      applicationId: app3Id,
+      docType: 'FIRE_NOC' as const,
+      expiryDate: app3WarningNoc,
+      ...computeExpiryState(app3WarningNoc, new Date(now)),
+      lastCheckedAt: new Date().toISOString(),
+    };
+    this.complianceDocuments.set(compApp3_1.id, compApp3_1);
+    this.complianceDocuments.set(compApp3_2.id, compApp3_2);
+
+    this.notifications.set(`NOTIF-${app3Id}-WARNING-30`, {
+      id: `NOTIF-${app3Id}-WARNING-30`,
+      applicationId: app3Id,
+      title: 'Action Required: Fire Safety NOC Expiring Soon',
+      message: `Fire Safety NOC for ${app3.institutionName} expires in 25 days (${app3WarningNoc}). Submit renewed certificate before final order.`,
+      type: 'WARNING',
+      read: false,
+      createdAt: new Date(now - 3 * day).toISOString(),
+      idempotencyKey: `${compApp3_2.id}-30`,
+    });
 
     const app3E1 = createLedgerEntry({
       id: `LEDGER-${app3Id}-1`,
@@ -314,7 +554,7 @@ class InMemoryStore implements IStore {
     });
     this.ledger.set(app3Id, [app3E1, app3E2, app3E3]);
 
-    // 4. App 4: APPROVED (Full lifecycle complete, On time)
+    // 4. App 4: APPROVED
     const app4Id = 'APP-2024-004';
     const app4Created = new Date(now - 25 * day).toISOString();
     const app4Sla = new Date(now - 4 * day).toISOString();
@@ -331,8 +571,28 @@ class InMemoryStore implements IStore {
         fireNocExpiry: '2030-05-10',
       },
       deficiencies: [],
+      locked: false,
     };
     this.applications.set(app4Id, app4);
+
+    const compApp4_1 = {
+      id: `COMP-${app4Id}-LEASE`,
+      applicationId: app4Id,
+      docType: 'LEASE_DEED' as const,
+      expiryDate: '2060-01-01',
+      ...computeExpiryState('2060-01-01', new Date(now)),
+      lastCheckedAt: new Date().toISOString(),
+    };
+    const compApp4_2 = {
+      id: `COMP-${app4Id}-FIRE`,
+      applicationId: app4Id,
+      docType: 'FIRE_NOC' as const,
+      expiryDate: '2030-05-10',
+      ...computeExpiryState('2030-05-10', new Date(now)),
+      lastCheckedAt: new Date().toISOString(),
+    };
+    this.complianceDocuments.set(compApp4_1.id, compApp4_1);
+    this.complianceDocuments.set(compApp4_2.id, compApp4_2);
 
     const app4E1 = createLedgerEntry({
       id: `LEDGER-${app4Id}-1`,
@@ -360,7 +620,6 @@ class InMemoryStore implements IStore {
       payload: {
         status: 'APPROVED',
         approvalOrderNo: 'AICTE/NWRO/2024/APP-004-EOA',
-        validAcademicYear: '2024-2025',
       },
       timestamp: new Date(now - 8 * day).toISOString(),
       prevHash: app4E2.hash,
@@ -369,5 +628,4 @@ class InMemoryStore implements IStore {
   }
 }
 
-// Singleton storage instance
 export const store: IStore = new InMemoryStore();

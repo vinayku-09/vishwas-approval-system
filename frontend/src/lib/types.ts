@@ -21,12 +21,88 @@ export interface ExtractedFields {
   fireNocExpiry?: string;
 }
 
+export type DocumentType = 'LEASE_DEED' | 'FIRE_NOC' | 'LAND_RECORD';
+
+export interface DocumentMetadata {
+  id: string;
+  applicationId: string;
+  docType: DocumentType;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+  storageUrl: string;
+  uploadedAt: string;
+}
+
+export interface ExtractedFieldValue<T> {
+  value?: T;
+  confidence: number;
+  sourcePage?: number;
+  evidenceText: string;
+  needsReview?: boolean;
+}
+
+export interface ExtractionResult {
+  source: 'real' | 'mock';
+  model?: string;
+  extractedAt: string;
+  fields: {
+    landAreaSqm: ExtractedFieldValue<number>;
+    leaseStartDate: ExtractedFieldValue<string>;
+    leaseEndDate: ExtractedFieldValue<string>;
+    fireNocExpiry: ExtractedFieldValue<string>;
+  };
+}
+
 export type DeficiencySeverity = 'CRITICAL' | 'MAJOR' | 'MINOR';
 
 export interface Deficiency {
+  id: string;
   message: string;
   clause: string;
   severity: DeficiencySeverity;
+  evidence?: string;
+  confidence?: number;
+  sourcePage?: number;
+  needsHumanReview?: boolean;
+}
+
+export type SignoffDecision = 'CONFIRM' | 'OVERRIDE';
+
+export interface SignoffRecord {
+  id: string;
+  applicationId: string;
+  officer: string;
+  decision: SignoffDecision;
+  deficiencyIds: string[];
+  remarks?: string;
+  timestamp: string;
+}
+
+export type ExpiryState = 'VALID' | 'WARNING' | 'OVERDUE';
+export type WarningTier = 90 | 60 | 30;
+
+export interface ComplianceDocument {
+  id: string;
+  applicationId: string;
+  docType: DocumentType;
+  expiryDate: string;
+  state: ExpiryState;
+  tier?: WarningTier;
+  daysRemaining: number;
+  lastCheckedAt: string;
+}
+
+export interface Notification {
+  id: string;
+  applicationId: string;
+  title: string;
+  message: string;
+  type: 'WARNING' | 'OVERDUE' | 'INFO';
+  read: boolean;
+  createdAt: string;
+  idempotencyKey: string;
 }
 
 export interface Application {
@@ -37,7 +113,10 @@ export interface Application {
   createdAt: string;
   slaDueAt: string;
   extracted?: ExtractedFields;
+  extractedDetails?: ExtractionResult;
   deficiencies: Deficiency[];
+  signoff?: SignoffRecord;
+  locked?: boolean;
 }
 
 export interface LedgerEntry {

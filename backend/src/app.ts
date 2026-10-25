@@ -2,6 +2,9 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { applicationsRouter } from './routes/applications.js';
+import { documentsRouter } from './routes/documents.js';
+import { cronRouter } from './routes/cron.js';
+import { notificationsRouter } from './routes/notifications.js';
 import { ledgerRouter } from './routes/ledger.js';
 
 export const app = new Hono();
@@ -24,13 +27,16 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    service: 'aicte-approval-backend',
-    version: '1.0.0',
+    service: 'vishwas-approval-backend',
+    version: '1.1.0',
   });
 });
 
 // Mount modular subrouters
+app.route('/applications', documentsRouter);
 app.route('/applications', applicationsRouter);
+app.route('/cron', cronRouter);
+app.route('/notifications', notificationsRouter);
 app.route('/ledger', ledgerRouter);
 
 // Global 404 handler

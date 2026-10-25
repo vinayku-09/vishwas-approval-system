@@ -9,6 +9,7 @@ out/
 build/
 dist/
 .vercel/
+uploads/
 
 # Logs
 npm-debug.log*

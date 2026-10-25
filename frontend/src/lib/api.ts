@@ -1,10 +1,34 @@
-import { Application, ApplicationType, ExtractedFields, LedgerEntry, Role, Status, VerificationResult, Deficiency } from './types';
-import { INITIAL_MOCK_APPLICATIONS, INITIAL_MOCK_LEDGER } from './mock';
+import {
+  Application,
+  ApplicationType,
+  ComplianceDocument,
+  Deficiency,
+  DocumentMetadata,
+  DocumentType,
+  ExtractedFields,
+  ExtractionResult,
+  LedgerEntry,
+  Notification,
+  Role,
+  SignoffDecision,
+  SignoffRecord,
+  Status,
+  VerificationResult,
+} from './types';
+import {
+  INITIAL_MOCK_APPLICATIONS,
+  INITIAL_MOCK_COMPLIANCE,
+  INITIAL_MOCK_DOCUMENTS,
+  INITIAL_MOCK_LEDGER,
+  INITIAL_MOCK_NOTIFICATIONS,
+} from './mock';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
-// In-memory fallback state in the browser if backend is disconnected
 let localApplications: Application[] = [...INITIAL_MOCK_APPLICATIONS];
+let localDocuments: Record<string, DocumentMetadata[]> = JSON.parse(JSON.stringify(INITIAL_MOCK_DOCUMENTS));
+let localCompliance: Record<string, ComplianceDocument[]> = JSON.parse(JSON.stringify(INITIAL_MOCK_COMPLIANCE));
+let localNotifications: Notification[] = [...INITIAL_MOCK_NOTIFICATIONS];
 let localLedger: Record<string, LedgerEntry[]> = JSON.parse(JSON.stringify(INITIAL_MOCK_LEDGER));
 
 export function getStoredRole(): Role {
@@ -28,12 +52,14 @@ async function request<T>(
 ): Promise<{ data: T; isDemo: boolean; error?: string }> {
   const role = getStoredRole();
   const headers = new Headers(options.headers || {});
-  headers.set('Content-Type', 'application/json');
+  if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json');
+  }
   headers.set('x-role', role);
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2500);
+    const timeout = setTimeout(() => controller.abort(), 3500);
 
     const res = await fetch(`${API_BASE_URL}${path}`, {
       ...options,
@@ -72,7 +98,6 @@ export async function getApplications(filters?: {
     return { data: res.data, isDemo: false };
   }
 
-  // Fallback to local state
   let list = [...localApplications];
   if (filters?.status) list = list.filter((a) => a.status === filters.status);
   if (filters?.type) list = list.filter((a) => a.type === filters.type);
@@ -107,7 +132,6 @@ export async function createApplication(data: {
     return { data: res.data, isDemo: false };
   }
 
-  // Mock creation fallback
   const now = new Date();
   const nextId = `APP-2024-${String(localApplications.length + 1).padStart(3, '0')}`;
   const newApp: Application = {
@@ -119,55 +143,139 @@ export async function createApplication(data: {
     slaDueAt: new Date(now.getTime() + 21 * 24 * 60 * 60 * 1000).toISOString(),
     extracted: data.extracted || {},
     deficiencies: [],
+    locked: false,
   };
 
   localApplications = [newApp, ...localApplications];
-
-  const firstEntry: LedgerEntry = {
-    id: `LEDGER-${nextId}-1`,
-    applicationId: nextId,
-    eventType: 'APPLICATION_CREATED',
-    actor: getStoredRole(),
-    payload: { institutionName: newApp.institutionName, type: newApp.type },
-    timestamp: now.toISOString(),
-    prevHash: '0000000000000000000000000000000000000000000000000000000000000000',
-    hash: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
-  };
-  localLedger[nextId] = [firstEntry];
-
   return { data: newApp, isDemo: true };
 }
 
-// 4. Run AI scrutiny
-export async function runScrutiny(
-  id: string,
-  extracted?: ExtractedFields
-): Promise<{ data: { application: Application; deficiencies: Deficiency[] }; isDemo: boolean }> {
-  const res = await request<{
-    application: Application;
-    deficiencies: Deficiency[];
-  }>(`/applications/${id}/scrutiny`, {
+// 4. Upload document (Real multipart post)
+export async function uploadDocument(
+  applicationId: string,
+  file: File,
+  docType: DocumentType
+): Promise<{ data: DocumentMetadata; isDemo: boolean }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('docType', docType);
+
+  const res = await request<DocumentMetadata>(`/applications/${applicationId}/documents`, {
     method: 'POST',
-    body: JSON.stringify(extracted || {}),
+    body: formData,
   });
 
   if (!res.isDemo && res.data) {
     return { data: res.data, isDemo: false };
   }
 
-  // Mock scrutiny
-  const appIndex = localApplications.findIndex((a) => a.id === id);
-  if (appIndex === -1) throw new Error('Application not found');
+  // Mock upload fallback
+  const mockDoc: DocumentMetadata = {
+    id: `DOC-${applicationId}-${Date.now().toString().slice(-4)}`,
+    applicationId,
+    docType,
+    fileName: file.name,
+    mimeType: file.type || 'application/pdf',
+    sizeBytes: file.size,
+    sha256: '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945',
+    storageUrl: `/uploads/${file.name}`,
+    uploadedAt: new Date().toISOString(),
+  };
 
-  const app = localApplications[appIndex];
-  const updatedExtracted = { ...app.extracted, ...extracted };
+  const currentDocs = localDocuments[applicationId] || [];
+  localDocuments[applicationId] = [...currentDocs, mockDoc];
+
+  return { data: mockDoc, isDemo: true };
+}
+
+// 5. Get uploaded documents
+export async function getDocuments(applicationId: string): Promise<{ data: DocumentMetadata[]; isDemo: boolean }> {
+  const res = await request<DocumentMetadata[]>(`/applications/${applicationId}/documents`);
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+
+  const docs = localDocuments[applicationId] || [];
+  return { data: docs, isDemo: true };
+}
+
+// 6. Run AI Extraction & Scrutiny Rules
+export async function runExtract(applicationId: string): Promise<{
+  data: {
+    application: Application;
+    extraction: ExtractionResult;
+    deficiencies: Deficiency[];
+    allPassed: boolean;
+  };
+  isDemo: boolean;
+}> {
+  const res = await request<{
+    application: Application;
+    extraction: ExtractionResult;
+    deficiencies: Deficiency[];
+    allPassed: boolean;
+  }>(`/applications/${applicationId}/extract`, {
+    method: 'POST',
+  });
+
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+
+  const appIdx = localApplications.findIndex((a) => a.id === applicationId);
+  if (appIdx === -1) throw new Error('Application not found');
+
+  const app = localApplications[appIdx];
+  const landArea = app.extracted?.landAreaSqm ?? 7500;
+  const leaseEndDate = app.extracted?.leaseEndDate ?? '2045-12-31';
+  const fireNocExpiry = app.extracted?.fireNocExpiry ?? '2028-06-30';
+
+  const extraction: ExtractionResult = {
+    source: 'mock',
+    model: 'mock-vision-extractor',
+    extractedAt: new Date().toISOString(),
+    fields: {
+      landAreaSqm: {
+        value: landArea,
+        confidence: 0.95,
+        sourcePage: 2,
+        evidenceText: `Campus plot area verified as ${landArea.toLocaleString()} sq.m.`,
+        needsReview: false,
+      },
+      leaseStartDate: {
+        value: '2020-01-01',
+        confidence: 0.92,
+        sourcePage: 1,
+        evidenceText: 'Lease entered on 1 January 2020.',
+        needsReview: false,
+      },
+      leaseEndDate: {
+        value: leaseEndDate,
+        confidence: 0.88,
+        sourcePage: 4,
+        evidenceText: `Lease expires on ${leaseEndDate}.`,
+        needsReview: false,
+      },
+      fireNocExpiry: {
+        value: fireNocExpiry,
+        confidence: 0.86,
+        sourcePage: 1,
+        evidenceText: `Fire NOC active until ${fireNocExpiry}.`,
+        needsReview: false,
+      },
+    },
+  };
 
   const deficiencies: Deficiency[] = [];
-  if (!updatedExtracted.landAreaSqm || updatedExtracted.landAreaSqm < 6000) {
+  if (landArea < 6000) {
     deficiencies.push({
-      message: `Land area ${updatedExtracted.landAreaSqm || 0} sq.m is below required 6000 sq.m`,
+      id: 'DEF-LAND-MOCK',
+      message: `Land area ${landArea} sq.m is below required 6000 sq.m`,
       clause: 'AICTE APH Clause 4.1',
       severity: 'CRITICAL',
+      evidence: `Survey plan indicates net educational plot area of ${landArea} sq.m.`,
+      confidence: 0.95,
+      sourcePage: 2,
     });
   }
 
@@ -175,38 +283,73 @@ export async function runScrutiny(
   const updatedApp: Application = {
     ...app,
     status: nextStatus,
-    extracted: updatedExtracted,
+    extractedDetails: extraction,
     deficiencies,
   };
-  localApplications[appIndex] = updatedApp;
+  localApplications[appIdx] = updatedApp;
 
-  // Add ledger entry
-  const chain = localLedger[id] || [];
-  const prev = chain[chain.length - 1];
-  const newEntry: LedgerEntry = {
-    id: `LEDGER-${id}-${chain.length + 1}`,
-    applicationId: id,
-    eventType: 'SCRUTINY_RULE_EVALUATION',
-    actor: 'officer',
-    payload: { status: nextStatus, deficiencies },
-    timestamp: new Date().toISOString(),
-    prevHash: prev ? prev.hash : '0000000000000000000000000000000000000000000000000000000000000000',
-    hash: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+  return {
+    data: {
+      application: updatedApp,
+      extraction,
+      deficiencies,
+      allPassed: deficiencies.length === 0,
+    },
+    isDemo: true,
   };
-  localLedger[id] = [...chain, newEntry];
-
-  return { data: { application: updatedApp, deficiencies }, isDemo: true };
 }
 
-// 5. Advance workflow state
+// 7. Human Officer Sign-off (CONFIRM or OVERRIDE)
+export async function recordSignoff(
+  applicationId: string,
+  data: {
+    decision: SignoffDecision;
+    deficiencyIds: string[];
+    remarks?: string;
+  }
+): Promise<{ data: { success: boolean; signoff: SignoffRecord; application: Application }; isDemo: boolean }> {
+  const res = await request<{ success: boolean; signoff: SignoffRecord; application: Application }>(
+    `/applications/${applicationId}/signoff`,
+    {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }
+  );
+
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+
+  const appIdx = localApplications.findIndex((a) => a.id === applicationId);
+  if (appIdx === -1) throw new Error('Application not found');
+
+  const signoff: SignoffRecord = {
+    id: `SIGNOFF-${applicationId}-${Date.now().toString().slice(-4)}`,
+    applicationId,
+    officer: getStoredRole(),
+    decision: data.decision,
+    deficiencyIds: data.deficiencyIds,
+    remarks: data.remarks || '',
+    timestamp: new Date().toISOString(),
+  };
+
+  localApplications[appIdx].signoff = signoff;
+  return {
+    data: { success: true, signoff, application: localApplications[appIdx] },
+    isDemo: true,
+  };
+}
+
+// 8. Advance workflow state
 export async function advanceApplication(
   id: string,
   to: Status,
-  remarks?: string
+  remarks?: string,
+  overrideRemarks?: string
 ): Promise<{ data: Application; isDemo: boolean }> {
   const res = await request<Application>(`/applications/${id}/advance`, {
     method: 'POST',
-    body: JSON.stringify({ to, remarks }),
+    body: JSON.stringify({ to, remarks, overrideRemarks }),
   });
 
   if (!res.isDemo && res.data) {
@@ -217,38 +360,76 @@ export async function advanceApplication(
   if (appIndex === -1) throw new Error('Application not found');
 
   const app = localApplications[appIndex];
+  if (app.locked && !overrideRemarks) {
+    throw new Error('Application is locked due to expired compliance document(s). Officer override with remarks required.');
+  }
+
+  if (to === 'REJECTED' && app.signoff?.decision !== 'CONFIRM') {
+    throw new Error('Officer sign-off required before advancing to REJECTED.');
+  }
+
   const updatedApp: Application = { ...app, status: to };
   localApplications[appIndex] = updatedApp;
-
-  const chain = localLedger[id] || [];
-  const prev = chain[chain.length - 1];
-  const newEntry: LedgerEntry = {
-    id: `LEDGER-${id}-${chain.length + 1}`,
-    applicationId: id,
-    eventType: 'WORKFLOW_STATE_ADVANCED',
-    actor: getStoredRole(),
-    payload: { previousStatus: app.status, newStatus: to, remarks },
-    timestamp: new Date().toISOString(),
-    prevHash: prev ? prev.hash : '0000000000000000000000000000000000000000000000000000000000000000',
-    hash: 'fe98ba76543210fe98ba76543210fe98ba76543210fe98ba76543210fe98ba',
-  };
-  localLedger[id] = [...chain, newEntry];
 
   return { data: updatedApp, isDemo: true };
 }
 
-// 6. Get ledger
+// 9. Get compliance documents & lock status
+export async function getCompliance(
+  applicationId: string
+): Promise<{ data: { applicationId: string; locked: boolean; documents: ComplianceDocument[] }; isDemo: boolean }> {
+  const res = await request<{ applicationId: string; locked: boolean; documents: ComplianceDocument[] }>(
+    `/applications/${applicationId}/compliance`
+  );
+
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+
+  const app = localApplications.find((a) => a.id === applicationId);
+  const docs = localCompliance[applicationId] || [];
+  return {
+    data: {
+      applicationId,
+      locked: app?.locked || false,
+      documents: docs,
+    },
+    isDemo: true,
+  };
+}
+
+// 10. Notifications
+export async function getNotifications(): Promise<{ data: Notification[]; isDemo: boolean }> {
+  const res = await request<Notification[]>('/notifications');
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+  return { data: localNotifications, isDemo: true };
+}
+
+export async function markNotificationRead(id: string): Promise<{ data: { success: boolean }; isDemo: boolean }> {
+  const res = await request<{ success: boolean }>(`/notifications/${id}/read`, {
+    method: 'POST',
+  });
+
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+
+  const n = localNotifications.find((item) => item.id === id);
+  if (n) n.read = true;
+  return { data: { success: true }, isDemo: true };
+}
+
+// 11. Ledger inspection & verification
 export async function getLedger(applicationId: string): Promise<{ data: LedgerEntry[]; isDemo: boolean }> {
   const res = await request<LedgerEntry[]>(`/ledger/${applicationId}`);
   if (!res.isDemo && res.data) {
     return { data: res.data, isDemo: false };
   }
-
-  const entries = localLedger[applicationId] || [];
-  return { data: entries, isDemo: true };
+  return { data: localLedger[applicationId] || [], isDemo: true };
 }
 
-// 7. Verify ledger
 export async function verifyLedger(
   applicationId: string
 ): Promise<{ data: VerificationResult; isDemo: boolean }> {
@@ -283,7 +464,6 @@ export async function verifyLedger(
   };
 }
 
-// 8. Tamper ledger (Demonstration helper)
 export async function tamperLedger(
   applicationId: string
 ): Promise<{ data: { success: boolean; message: string }; isDemo: boolean }> {
