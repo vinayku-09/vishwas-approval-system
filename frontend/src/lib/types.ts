@@ -105,6 +105,100 @@ export interface Notification {
   idempotencyKey: string;
 }
 
+export type Domain = 'CIVIL' | 'CSE' | 'ELECTRICAL' | 'MECHANICAL';
+
+export interface Inspector {
+  id: string;
+  name: string;
+  domain: Domain;
+  homeCity: string;
+  lat: number;
+  lng: number;
+  availableDates: string[]; // YYYY-MM-DD
+}
+
+export interface Affiliation {
+  id: string;
+  inspectorId: string;
+  institutionName: string;
+  reason: string;
+}
+
+export interface EvcReportFindings {
+  infrastructure: string;
+  faculty: string;
+  labs: string;
+  remarks: string;
+}
+
+export interface EvcReport {
+  id: string;
+  applicationId: string;
+  inspectorId: string;
+  findings: EvcReportFindings;
+  recommendation: 'RECOMMENDED' | 'DEFICIENT';
+  reportHash: string;
+  submittedAt: string;
+}
+
+export interface InspectionAssignment {
+  id: string;
+  applicationId: string;
+  institutionName: string;
+  domain: Domain;
+  lat: number;
+  lng: number;
+  scheduledDate: string; // YYYY-MM-DD
+  inspectors: { id: string; name: string; domain: Domain; homeCity: string }[];
+  status: 'SCHEDULED' | 'COMPLETED';
+  report?: EvcReport;
+  source: 'ortools' | 'fallback' | 'manual';
+}
+
+export interface RouteStop {
+  applicationId: string;
+  institutionName: string;
+  lat: number;
+  lng: number;
+  arrivalTime: string;
+  departureTime: string;
+  distanceFromPrevKm: number;
+}
+
+export interface InspectorDayRoute {
+  inspectorId: string;
+  inspectorName: string;
+  homeCity: string;
+  date: string;
+  stops: RouteStop[];
+  totalKm: number;
+}
+
+export interface UnassignedVisit {
+  applicationId: string;
+  institutionName: string;
+  reason: string;
+}
+
+export interface ExcludedConflict {
+  inspectorId: string;
+  inspectorName: string;
+  institutionName: string;
+  reason: string;
+}
+
+export interface OptimizationResult {
+  source: 'ortools' | 'fallback';
+  routes: InspectorDayRoute[];
+  baselineKm: number;
+  optimizedKm: number;
+  percentSaved: number;
+  unassigned: UnassignedVisit[];
+  excludedConflictsCount: number;
+  excludedConflicts: ExcludedConflict[];
+  assignments: InspectionAssignment[];
+}
+
 export interface Application {
   id: string;
   institutionName: string;
@@ -117,6 +211,10 @@ export interface Application {
   deficiencies: Deficiency[];
   signoff?: SignoffRecord;
   locked?: boolean;
+  lat?: number;
+  lng?: number;
+  domain?: Domain;
+  scheduledInspection?: InspectionAssignment;
 }
 
 export interface LedgerEntry {

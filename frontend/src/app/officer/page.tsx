@@ -18,13 +18,27 @@ import {
   X,
   MessageSquare,
   AlertCircle,
+  Calendar,
+  Compass,
+  MapPin,
+  TrendingDown,
+  UserCheck,
+  Users,
 } from 'lucide-react';
-import { Application, ApplicationType, Status, SignoffDecision } from '../../lib/types';
+import {
+  Application,
+  ApplicationType,
+  OptimizationResult,
+  SignoffDecision,
+  Status,
+} from '../../lib/types';
 import {
   getApplications,
   runExtract,
   advanceApplication,
   recordSignoff,
+  optimizeScheduling,
+  scheduleEvc,
 } from '../../lib/api';
 import { StatusBadge } from '../../components/StatusBadge';
 import { SlaBadge } from '../../components/SlaBadge';
@@ -67,6 +81,14 @@ export default function OfficerPage() {
   const [advanceRemarks, setAdvanceRemarks] = useState('');
   const [overrideRemarks, setOverrideRemarks] = useState('');
 
+  // Phase A: EVC Scheduling & Optimization state
+  const [activeTab, setActiveTab] = useState<'APPLICATIONS' | 'EVC_OPTIMIZER'>('APPLICATIONS');
+  const [startDate, setStartDate] = useState('2026-11-01');
+  const [endDate, setEndDate] = useState('2026-11-07');
+  const [optimizing, setOptimizing] = useState(false);
+  const [optimizationResult, setOptimizationResult] = useState<OptimizationResult | null>(null);
+  const [schedulingAppId, setSchedulingAppId] = useState<string | null>(null);
+
   const loadData = async () => {
     setLoading(true);
     const filters: { status?: Status; type?: ApplicationType } = {};
@@ -77,6 +99,50 @@ export default function OfficerPage() {
     setApplications(res.data || []);
     setIsDemo(res.isDemo);
     setLoading(false);
+  };
+
+  const handleRunOptimizer = async () => {
+    setOptimizing(true);
+    try {
+      const res = await optimizeScheduling({ startDate, endDate });
+      if (res.data) {
+        setOptimizationResult(res.data);
+        showToast(
+          `EVC Routes Solved (${res.data.source.toUpperCase()}): ${res.data.percentSaved}% travel distance saved vs baseline.`,
+          'success'
+        );
+      } else if (res.error) {
+        showToast(`Optimization failed: ${res.error}`, 'error');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Optimization error: ${msg}`, 'error');
+    } finally {
+      setOptimizing(false);
+    }
+  };
+
+  const handleConfirmSchedule = async (
+    appId: string,
+    inspectorIds: [string, string],
+    date: string,
+    source?: 'ortools' | 'fallback'
+  ) => {
+    setSchedulingAppId(appId);
+    try {
+      const res = await scheduleEvc(appId, inspectorIds, date, source || 'fallback');
+      if (res.error) {
+        showToast(res.error, 'error');
+      } else {
+        showToast(`Inspection team scheduled for ${appId} on ${date}. Recorded in audit ledger.`, 'success');
+        await loadData();
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Scheduling failed: ${msg}`, 'error');
+    } finally {
+      setSchedulingAppId(null);
+    }
   };
 
   useEffect(() => {
@@ -225,8 +291,42 @@ export default function OfficerPage() {
         </button>
       </div>
 
-      {/* Filters Bar */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-4">
+      {/* Mode Switcher Tabs */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2">
+        <button
+          onClick={() => setActiveTab('APPLICATIONS')}
+          type="button"
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+            activeTab === 'APPLICATIONS'
+              ? 'bg-gov-blue-900 text-white shadow'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <ClipboardCheck className="w-4 h-4 text-gov-saffron" />
+          <span>Applications Scrutiny Queue ({applications.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('EVC_OPTIMIZER')}
+          type="button"
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+            activeTab === 'EVC_OPTIMIZER'
+              ? 'bg-purple-900 text-white shadow'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <Compass className="w-4 h-4 text-purple-400" />
+          <span>Schedule Inspections (EVC Vehicle Routing)</span>
+          <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-100 text-purple-900 font-extrabold ml-1">
+            OR-Tools VRP
+          </span>
+        </button>
+      </div>
+
+      {activeTab === 'APPLICATIONS' && (
+        <>
+          {/* Filters Bar */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-4">
         <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
           <Filter className="w-4 h-4" />
           Queue Filters:
@@ -406,6 +506,292 @@ export default function OfficerPage() {
           </table>
         </div>
       </div>
+    </>
+  )}
+
+  {/* PHASE A: EVC VEHICLE ROUTING OPTIMIZER PANEL */}
+  {activeTab === 'EVC_OPTIMIZER' && (
+    <div className="space-y-6">
+      {/* Controls Card */}
+      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+            <Compass className="w-5 h-5 text-purple-700" />
+            Google OR-Tools EVC Inspector Scheduling Engine
+          </h2>
+          <p className="text-xs text-slate-600">
+            Solves vehicle routing with time windows (9:00 - 18:00), haversine × 1.3 road distance, 4-hour visit duration, strict domain matching, and pre-solve conflict-of-interest exclusion.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 text-xs">
+            <label className="font-semibold text-slate-600">Window:</label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-slate-50 font-medium"
+            />
+            <span className="text-slate-400">to</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-slate-50 font-medium"
+            />
+          </div>
+
+          <button
+            onClick={handleRunOptimizer}
+            disabled={optimizing}
+            type="button"
+            className="px-4 py-2 rounded-lg bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-colors disabled:opacity-50"
+          >
+            <Compass className={`w-4 h-4 ${optimizing ? 'animate-spin' : ''}`} />
+            <span>{optimizing ? 'Optimizing Routes...' : 'Run EVC Optimizer'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* When no result yet */}
+      {!optimizationResult && (
+        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center space-y-4">
+          <div className="w-12 h-12 rounded-full bg-purple-50 text-purple-700 flex items-center justify-center mx-auto">
+            <Compass className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Routing Engine Ready</h3>
+            <p className="text-xs text-slate-500 max-w-lg mx-auto mt-1">
+              Select an allowed date window and click <strong>Run EVC Optimizer</strong>. The solver will allocate 2-inspector teams to all applications requiring EVC visits without creating conflicts of interest.
+            </p>
+          </div>
+          <div className="flex justify-center gap-4 text-xs font-semibold text-slate-600">
+            <span className="px-3 py-1 rounded-full bg-slate-100">12 Seeded Inspectors (4 Domains)</span>
+            <span className="px-3 py-1 rounded-full bg-slate-100">10 Seeded Conflict Affiliations</span>
+            <span className="px-3 py-1 rounded-full bg-slate-100">Working Hours: 9:00 - 18:00</span>
+          </div>
+        </div>
+      )}
+
+      {/* Optimization Results View */}
+      {optimizationResult && (
+        <div className="space-y-6">
+          {/* Savings KPI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-purple-50 border border-purple-200 p-5 rounded-xl shadow-sm">
+              <div className="flex items-center justify-between text-purple-900 text-xs font-bold">
+                <span>Solver Engine</span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase bg-purple-200 text-purple-900">
+                  {optimizationResult.source}
+                </span>
+              </div>
+              <div className="text-2xl font-black text-purple-950 mt-2">
+                {optimizationResult.source === 'ortools' ? 'Google OR-Tools' : 'Nearest-Neighbor VRP'}
+              </div>
+              <p className="text-[11px] text-purple-700 mt-1">Time windows & conflict filters active</p>
+            </div>
+
+            <div className="bg-emerald-50 border border-emerald-200 p-5 rounded-xl shadow-sm">
+              <div className="flex items-center justify-between text-emerald-900 text-xs font-bold">
+                <span>Distance Saved</span>
+                <TrendingDown className="w-4 h-4 text-emerald-600" />
+              </div>
+              <div className="text-2xl font-black text-emerald-950 mt-2">
+                {optimizationResult.percentSaved}% Saved
+              </div>
+              <p className="text-[11px] text-emerald-700 mt-1">
+                Optimized {optimizationResult.optimizedKm} km vs {optimizationResult.baselineKm} km baseline
+              </p>
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 p-5 rounded-xl shadow-sm">
+              <div className="flex items-center justify-between text-blue-900 text-xs font-bold">
+                <span>Total Travel Km</span>
+                <MapPin className="w-4 h-4 text-blue-600" />
+              </div>
+              <div className="text-2xl font-black text-blue-950 mt-2">
+                {optimizationResult.optimizedKm} km
+              </div>
+              <p className="text-[11px] text-blue-700 mt-1">Across all deployed inspection teams</p>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 p-5 rounded-xl shadow-sm">
+              <div className="flex items-center justify-between text-amber-900 text-xs font-bold">
+                <span>Conflicts Filtered</span>
+                <ShieldCheck className="w-4 h-4 text-amber-600" />
+              </div>
+              <div className="text-2xl font-black text-amber-950 mt-2">
+                {optimizationResult.excludedConflictsCount} Excluded
+              </div>
+              <p className="text-[11px] text-amber-700 mt-1">Strict zero-tolerance affiliation policy</p>
+            </div>
+          </div>
+
+          {/* Excluded Conflicts of Interest Table */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-4 bg-amber-50/60 border-b border-amber-100 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-amber-900 font-bold text-xs uppercase tracking-wider">
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                Conflict of Interest Exclusions ({optimizationResult.excludedConflicts.length})
+              </div>
+              <span className="text-[11px] text-amber-800 font-medium">
+                Filtered prior to solving: Conflicted pairs are mathematically impossible to assign
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase font-bold text-[11px]">
+                  <tr>
+                    <th className="px-4 py-2.5">Inspector Name</th>
+                    <th className="px-4 py-2.5">Affiliated Institution</th>
+                    <th className="px-4 py-2.5">Conflict Reason</th>
+                    <th className="px-4 py-2.5 text-right">Policy Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {optimizationResult.excludedConflicts.map((c, idx) => (
+                    <tr key={idx} className="hover:bg-amber-50/30">
+                      <td className="px-4 py-2.5 font-semibold text-slate-900">
+                        {c.inspectorName} ({c.inspectorId})
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-800">{c.institutionName}</td>
+                      <td className="px-4 py-2.5 text-amber-900 italic">{c.reason}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-800 border border-red-200">
+                          Excluded
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Generated Routes & Action Dispatch */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                <Users className="w-4 h-4 text-purple-700" />
+                Optimized Inspector Itineraries & Assigned Teams ({optimizationResult.assignments.length})
+              </h3>
+              <span className="text-[11px] text-slate-500 font-medium">
+                Teams of 2 distinct inspectors per institution
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase font-bold text-[11px]">
+                  <tr>
+                    <th className="px-4 py-3">Application</th>
+                    <th className="px-4 py-3">Scheduled Date</th>
+                    <th className="px-4 py-3">Domain</th>
+                    <th className="px-4 py-3">Team (2 Distinct Inspectors)</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3 text-right">Confirm Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {optimizationResult.assignments.map((asgn) => {
+                    const isScheduled = applications.find((a) => a.id === asgn.applicationId)?.scheduledInspection;
+                    const isBusy = schedulingAppId === asgn.applicationId;
+
+                    return (
+                      <tr key={asgn.id} className="hover:bg-slate-50/70">
+                        <td className="px-4 py-3">
+                          <span className="font-mono font-bold text-gov-blue-900 block">{asgn.applicationId}</span>
+                          <span className="text-slate-800 font-medium">{asgn.institutionName}</span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap font-medium text-slate-700">
+                          <div className="flex items-center gap-1.5">
+                            <Calendar className="w-3.5 h-3.5 text-purple-600" />
+                            {asgn.scheduledDate}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-800 border border-indigo-200">
+                            {asgn.domain}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="space-y-1">
+                            {asgn.inspectors.map((ins) => (
+                              <div key={ins.id} className="flex items-center gap-1.5 text-slate-700">
+                                <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+                                <span className="font-semibold">{ins.name}</span>
+                                <span className="text-[10px] text-slate-400">({ins.homeCity})</span>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {isScheduled ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                              Scheduled in Ledger
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                              Proposed Route
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          <button
+                            onClick={() =>
+                              handleConfirmSchedule(
+                                asgn.applicationId,
+                                [asgn.inspectors[0].id, asgn.inspectors[1].id],
+                                asgn.scheduledDate,
+                                optimizationResult.source
+                              )
+                            }
+                            disabled={isBusy || !!isScheduled}
+                            type="button"
+                            className="px-3 py-1.5 rounded bg-gov-blue-900 hover:bg-gov-blue-800 text-white font-semibold text-[11px] transition-colors shadow-sm disabled:opacity-50"
+                          >
+                            {isScheduled ? 'Scheduled ✓' : isBusy ? 'Recording...' : 'Confirm & Schedule'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Unassigned Visits Panel */}
+          {optimizationResult.unassigned.length > 0 && (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-slate-500" />
+                  Unassigned Applications ({optimizationResult.unassigned.length})
+                </h3>
+              </div>
+              <div className="p-4 space-y-2">
+                {optimizationResult.unassigned.map((u) => (
+                  <div
+                    key={u.applicationId}
+                    className="p-3 rounded-lg bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                  >
+                    <div>
+                      <span className="font-mono font-bold text-gov-blue-900 mr-2">{u.applicationId}</span>
+                      <span className="font-semibold text-slate-800">{u.institutionName}</span>
+                    </div>
+                    <span className="text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded text-[11px] font-medium">
+                      {u.reason}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )}
 
       {/* REVIEW & HUMAN SIGN-OFF MODAL */}
       {reviewApp && (

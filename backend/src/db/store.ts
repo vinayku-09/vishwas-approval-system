@@ -1,9 +1,14 @@
 import {
+  Affiliation,
   Application,
   ApplicationType,
   ComplianceDocument,
   DocumentMetadata,
+  Domain,
+  EvcReport,
   ExtractedFields,
+  InspectionAssignment,
+  Inspector,
   LedgerEntry,
   Notification,
   SignoffRecord,
@@ -20,6 +25,9 @@ export interface IStore {
     type: ApplicationType;
     extracted?: ExtractedFields;
     actor?: string;
+    lat?: number;
+    lng?: number;
+    domain?: Domain;
   }): Promise<Application>;
   updateApplication(id: string, updates: Partial<Application>): Promise<Application | null>;
   
@@ -40,6 +48,14 @@ export interface IStore {
   recordSignoff(record: SignoffRecord): Promise<SignoffRecord>;
   getSignoff(applicationId: string): Promise<SignoffRecord | null>;
 
+  // Scheduling & EVC Inspections (Phase A)
+  getInspectors(domain?: Domain): Promise<Inspector[]>;
+  getInspector(id: string): Promise<Inspector | null>;
+  getAffiliations(): Promise<Affiliation[]>;
+  getInspections(inspectorId?: string): Promise<InspectionAssignment[]>;
+  saveInspection(inspection: InspectionAssignment): Promise<InspectionAssignment>;
+  saveEvcReport(applicationId: string, report: EvcReport): Promise<EvcReport>;
+
   // Ledger
   getLedger(applicationId: string): Promise<LedgerEntry[]>;
   recordLedger(
@@ -59,6 +75,9 @@ class InMemoryStore implements IStore {
   private notifications: Map<string, Notification> = new Map();
   private signoffs: Map<string, SignoffRecord> = new Map();
   private ledger: Map<string, LedgerEntry[]> = new Map();
+  private inspectors: Map<string, Inspector> = new Map();
+  private affiliations: Map<string, Affiliation> = new Map();
+  private inspections: Map<string, InspectionAssignment> = new Map();
 
   constructor() {
     this.seed();
@@ -85,6 +104,9 @@ class InMemoryStore implements IStore {
     type: ApplicationType;
     extracted?: ExtractedFields;
     actor?: string;
+    lat?: number;
+    lng?: number;
+    domain?: Domain;
   }): Promise<Application> {
     const nextSeq = this.applications.size + 1;
     const year = new Date().getFullYear();
@@ -105,6 +127,9 @@ class InMemoryStore implements IStore {
       extracted: data.extracted || {},
       deficiencies: [],
       locked: false,
+      lat: data.lat || 19.076,
+      lng: data.lng || 72.877,
+      domain: data.domain || 'CSE',
     };
 
     this.applications.set(id, application);
@@ -118,6 +143,9 @@ class InMemoryStore implements IStore {
         type: application.type,
         status: application.status,
         slaDueAt: application.slaDueAt,
+        domain: application.domain,
+        lat: application.lat,
+        lng: application.lng,
       }
     );
 
@@ -136,10 +164,67 @@ class InMemoryStore implements IStore {
       deficiencies: updates.deficiencies ?? app.deficiencies,
       signoff: updates.signoff ?? app.signoff,
       locked: updates.locked !== undefined ? updates.locked : app.locked,
+      lat: updates.lat !== undefined ? updates.lat : app.lat,
+      lng: updates.lng !== undefined ? updates.lng : app.lng,
+      domain: updates.domain ?? app.domain,
+      scheduledInspection: updates.scheduledInspection ?? app.scheduledInspection,
     };
 
     this.applications.set(id, updated);
     return JSON.parse(JSON.stringify(updated));
+  }
+
+  // Phase A: Scheduling & EVC Inspection Methods
+  async getInspectors(domain?: Domain): Promise<Inspector[]> {
+    let list = Array.from(this.inspectors.values());
+    if (domain) {
+      list = list.filter((i) => i.domain.toUpperCase() === domain.toUpperCase());
+    }
+    return JSON.parse(JSON.stringify(list));
+  }
+
+  async getInspector(id: string): Promise<Inspector | null> {
+    const ins = this.inspectors.get(id);
+    return ins ? JSON.parse(JSON.stringify(ins)) : null;
+  }
+
+  async getAffiliations(): Promise<Affiliation[]> {
+    return JSON.parse(JSON.stringify(Array.from(this.affiliations.values())));
+  }
+
+  async getInspections(inspectorId?: string): Promise<InspectionAssignment[]> {
+    let list = Array.from(this.inspections.values());
+    if (inspectorId) {
+      list = list.filter((i) => i.inspectors.some((ins) => ins.id === inspectorId));
+    }
+    return JSON.parse(JSON.stringify(list));
+  }
+
+  async saveInspection(inspection: InspectionAssignment): Promise<InspectionAssignment> {
+    this.inspections.set(inspection.id, JSON.parse(JSON.stringify(inspection)));
+    const app = this.applications.get(inspection.applicationId);
+    if (app) {
+      app.scheduledInspection = inspection;
+      this.applications.set(inspection.applicationId, app);
+    }
+    return JSON.parse(JSON.stringify(inspection));
+  }
+
+  async saveEvcReport(applicationId: string, report: EvcReport): Promise<EvcReport> {
+    const inspectionId = `INSP-${applicationId}`;
+    const insp = this.inspections.get(inspectionId);
+    if (insp) {
+      insp.status = 'COMPLETED';
+      insp.report = report;
+      this.inspections.set(inspectionId, insp);
+    }
+    const app = this.applications.get(applicationId);
+    if (app && app.scheduledInspection) {
+      app.scheduledInspection.status = 'COMPLETED';
+      app.scheduledInspection.report = report;
+      this.applications.set(applicationId, app);
+    }
+    return JSON.parse(JSON.stringify(report));
   }
 
   async saveDocument(doc: DocumentMetadata): Promise<DocumentMetadata> {
@@ -255,6 +340,9 @@ class InMemoryStore implements IStore {
     this.notifications.clear();
     this.signoffs.clear();
     this.ledger.clear();
+    this.inspectors.clear();
+    this.affiliations.clear();
+    this.inspections.clear();
 
     const now = Date.now();
     const day = 24 * 60 * 60 * 1000;
@@ -287,6 +375,9 @@ class InMemoryStore implements IStore {
       },
       deficiencies: [],
       locked: false,
+      lat: 28.545,
+      lng: 77.1926,
+      domain: 'MECHANICAL',
     };
     this.applications.set(app1Id, app1);
 
@@ -397,6 +488,9 @@ class InMemoryStore implements IStore {
         },
       ],
       locked: true, // Locked due to overdue expired document
+      lat: 18.6279,
+      lng: 73.8131,
+      domain: 'CIVIL',
     };
     this.applications.set(app2Id, app2);
 
@@ -488,6 +582,9 @@ class InMemoryStore implements IStore {
       },
       deficiencies: [],
       locked: false,
+      lat: 19.033,
+      lng: 73.0297,
+      domain: 'CSE',
     };
     this.applications.set(app3Id, app3);
 
@@ -572,6 +669,9 @@ class InMemoryStore implements IStore {
       },
       deficiencies: [],
       locked: false,
+      lat: 22.56,
+      lng: 88.35,
+      domain: 'ELECTRICAL',
     };
     this.applications.set(app4Id, app4);
 
@@ -625,6 +725,173 @@ class InMemoryStore implements IStore {
       prevHash: app4E2.hash,
     });
     this.ledger.set(app4Id, [app4E1, app4E2, app4E3]);
+
+    // -------------------------------------------------------------
+    // Phase A Seeds: 12 Inspectors across Indian States
+    // -------------------------------------------------------------
+    const seedDates = ['2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07'];
+    const inspectorsList: Inspector[] = [
+      { id: 'INS-001', name: 'Dr. Rajesh Sharma', domain: 'CSE', homeCity: 'Mumbai, MH', lat: 19.0760, lng: 72.8777, availableDates: seedDates },
+      { id: 'INS-002', name: 'Dr. Sunita Patil', domain: 'CSE', homeCity: 'Pune, MH', lat: 18.5204, lng: 73.8567, availableDates: seedDates },
+      { id: 'INS-003', name: 'Prof. Amit Verma', domain: 'CSE', homeCity: 'Nashik, MH', lat: 19.9975, lng: 73.7898, availableDates: seedDates },
+      { id: 'INS-004', name: 'Dr. Priya Nair', domain: 'CIVIL', homeCity: 'Bengaluru, KA', lat: 12.9716, lng: 77.5946, availableDates: seedDates },
+      { id: 'INS-005', name: 'Prof. Suresh Reddy', domain: 'CIVIL', homeCity: 'Mysuru, KA', lat: 12.2958, lng: 76.6394, availableDates: seedDates },
+      { id: 'INS-006', name: 'Dr. Anand Kumar', domain: 'CIVIL', homeCity: 'Chennai, TN', lat: 13.0827, lng: 80.2707, availableDates: seedDates },
+      { id: 'INS-007', name: 'Dr. Vikram Malhotra', domain: 'MECHANICAL', homeCity: 'New Delhi, DL', lat: 28.6139, lng: 77.2090, availableDates: seedDates },
+      { id: 'INS-008', name: 'Prof. Meenakshi Sundaram', domain: 'MECHANICAL', homeCity: 'Noida, UP', lat: 28.5355, lng: 77.3910, availableDates: seedDates },
+      { id: 'INS-009', name: 'Dr. Gurpreet Singh', domain: 'MECHANICAL', homeCity: 'Chandigarh, CH', lat: 30.7333, lng: 76.7794, availableDates: seedDates },
+      { id: 'INS-010', name: 'Prof. Ramesh Iyer', domain: 'ELECTRICAL', homeCity: 'Hyderabad, TS', lat: 17.3850, lng: 78.4867, availableDates: seedDates },
+      { id: 'INS-011', name: 'Dr. Deepa Mukherjee', domain: 'ELECTRICAL', homeCity: 'Kolkata, WB', lat: 22.5726, lng: 88.3639, availableDates: seedDates },
+      { id: 'INS-012', name: 'Dr. Harish Joshi', domain: 'CSE', homeCity: 'Ahmedabad, GJ', lat: 23.0225, lng: 72.5714, availableDates: seedDates },
+    ];
+    for (const ins of inspectorsList) {
+      this.inspectors.set(ins.id, ins);
+    }
+
+    // -------------------------------------------------------------
+    // Phase A Seeds: 10 Affiliations (Conflicts of Interest)
+    // -------------------------------------------------------------
+    const affiliationsList: Affiliation[] = [
+      // Key Demo Conflict: Dr. Rajesh Sharma is in Mumbai (~10km from VJTI), but has active affiliation!
+      { id: 'AFF-001', inspectorId: 'INS-001', institutionName: 'Veermata Jijabai Technological Institute (VJTI)', reason: 'Former Department Head & Professor (2018-2023)' },
+      { id: 'AFF-002', inspectorId: 'INS-002', institutionName: 'Deccan Institute of Advanced Computing', reason: 'Current PhD thesis supervisor for faculty members' },
+      { id: 'AFF-003', inspectorId: 'INS-004', institutionName: 'Bangalore Institute of Technology', reason: 'Alumnus (B.Tech 2004) & Current Advisory Board Member' },
+      { id: 'AFF-004', inspectorId: 'INS-005', institutionName: 'National Institute of Engineering', reason: 'Immediate family member holds executive administrative office' },
+      { id: 'AFF-005', inspectorId: 'INS-007', institutionName: 'Delhi College of Engineering & Research', reason: 'Joint consultancy & patent research collaborator' },
+      { id: 'AFF-006', inspectorId: 'INS-008', institutionName: 'Apex Institute of Technology & Science', reason: 'Former Dean of Academics (2019-2022)' },
+      { id: 'AFF-007', inspectorId: 'INS-009', institutionName: 'Punjab Engineering Academy', reason: 'Alumnus & Adjunct Visiting Faculty' },
+      { id: 'AFF-008', inspectorId: 'INS-010', institutionName: 'Telangana State Polytechnic', reason: 'Immediate relative currently studying in the department' },
+      { id: 'AFF-009', inspectorId: 'INS-011', institutionName: 'Bengal Institute of Technology', reason: 'Co-investigator on ongoing funded research project' },
+      { id: 'AFF-010', inspectorId: 'INS-012', institutionName: 'Gujarat Institute of Data Sciences', reason: 'Standing Board of Studies member' },
+    ];
+    for (const aff of affiliationsList) {
+      this.affiliations.set(aff.id, aff);
+    }
+
+    // -------------------------------------------------------------
+    // Phase A Seeds: Applications 5 through 15 across Indian States
+    // -------------------------------------------------------------
+    const extraApps: Array<{
+      id: string;
+      institutionName: string;
+      type: ApplicationType;
+      status: Status;
+      domain: Domain;
+      lat: number;
+      lng: number;
+      area: number;
+      lease: string;
+      noc: string;
+    }> = [
+      // APP 5: Mumbai (Conflict demo with INS-001)
+      { id: 'APP-2024-005', institutionName: 'Veermata Jijabai Technological Institute (VJTI)', type: 'NEW', status: 'EVC_REQUIRED', domain: 'CSE', lat: 18.9750, lng: 72.8258, area: 24000, lease: '2060-01-01', noc: '2028-12-31' },
+      // APP 6: Mysuru (Civil)
+      { id: 'APP-2024-006', institutionName: 'National Institute of Engineering', type: 'NEW', status: 'EVC_REQUIRED', domain: 'CIVIL', lat: 12.2830, lng: 76.6410, area: 18000, lease: '2055-06-30', noc: '2029-03-31' },
+      // APP 7: New Delhi (Mechanical)
+      { id: 'APP-2024-007', institutionName: 'Delhi College of Engineering & Research', type: 'NEW', status: 'EVC_REQUIRED', domain: 'MECHANICAL', lat: 28.7495, lng: 77.1180, area: 22000, lease: '2050-01-01', noc: '2028-09-30' },
+      // APP 8: Pune (CSE)
+      { id: 'APP-2024-008', institutionName: 'Deccan Institute of Advanced Computing', type: 'NEW', status: 'EVC_REQUIRED', domain: 'CSE', lat: 18.5100, lng: 73.8400, area: 12000, lease: '2045-12-31', noc: '2027-11-30' },
+      // APP 9: Bengaluru (Civil)
+      { id: 'APP-2024-009', institutionName: 'Bangalore Institute of Technology', type: 'NEW', status: 'EVC_REQUIRED', domain: 'CIVIL', lat: 12.9560, lng: 77.5740, area: 16000, lease: '2052-05-15', noc: '2029-01-31' },
+      // APP 10: Chandigarh (Mechanical)
+      { id: 'APP-2024-010', institutionName: 'Punjab Engineering Academy', type: 'NEW', status: 'EVC_REQUIRED', domain: 'MECHANICAL', lat: 30.7600, lng: 76.7800, area: 19500, lease: '2058-08-20', noc: '2028-10-15' },
+      // APP 11: Hyderabad (Electrical)
+      { id: 'APP-2024-011', institutionName: 'Telangana State Polytechnic', type: 'NEW', status: 'EVC_REQUIRED', domain: 'ELECTRICAL', lat: 17.4000, lng: 78.4700, area: 14000, lease: '2049-11-10', noc: '2027-08-30' },
+      // APP 12: Ahmedabad (CSE)
+      { id: 'APP-2024-012', institutionName: 'Gujarat Institute of Data Sciences', type: 'NEW', status: 'EVC_REQUIRED', domain: 'CSE', lat: 23.0300, lng: 72.5600, area: 15500, lease: '2054-04-01', noc: '2028-04-30' },
+      // APP 13: Chennai (Civil, Submitted)
+      { id: 'APP-2024-013', institutionName: 'Tamil Nadu Polytechnic College', type: 'EXTENSION_OF_APPROVAL', status: 'SUBMITTED', domain: 'CIVIL', lat: 13.0600, lng: 80.2500, area: 11000, lease: '2040-01-01', noc: '2029-05-30' },
+      // APP 14: Kolkata (Electrical, Submitted)
+      { id: 'APP-2024-014', institutionName: 'Bengal Institute of Technology', type: 'EXTENSION_OF_APPROVAL', status: 'SUBMITTED', domain: 'ELECTRICAL', lat: 22.5100, lng: 88.4000, area: 13500, lease: '2042-07-15', noc: '2028-06-20' },
+      // APP 15: Leh, Ladakh (Electrical, Unassigned visit demo - exceeds travel limits)
+      { id: 'APP-2024-015', institutionName: 'Remote Himalayan Institute of Tech, Leh', type: 'NEW', status: 'EVC_REQUIRED', domain: 'ELECTRICAL', lat: 34.1526, lng: 77.5771, area: 8500, lease: '2065-01-01', noc: '2030-01-01' },
+    ];
+
+    for (const appData of extraApps) {
+      const createdAt = new Date(now - 10 * day).toISOString();
+      const slaDueAt = new Date(now + 11 * day).toISOString();
+
+      const appObj: Application = {
+        id: appData.id,
+        institutionName: appData.institutionName,
+        type: appData.type,
+        status: appData.status,
+        createdAt,
+        slaDueAt,
+        domain: appData.domain,
+        lat: appData.lat,
+        lng: appData.lng,
+        extracted: {
+          landAreaSqm: appData.area,
+          leaseEndDate: appData.lease,
+          fireNocExpiry: appData.noc,
+        },
+        deficiencies: [],
+        locked: false,
+      };
+
+      this.applications.set(appData.id, appObj);
+
+      // Ledger history
+      const e1 = createLedgerEntry({
+        id: `LEDGER-${appData.id}-1`,
+        applicationId: appData.id,
+        eventType: 'APPLICATION_CREATED',
+        actor: 'institution',
+        payload: { institutionName: appData.institutionName, type: appData.type, domain: appData.domain },
+        timestamp: createdAt,
+        prevHash: GENESIS_HASH,
+      });
+
+      if (appData.status === 'EVC_REQUIRED') {
+        const e2 = createLedgerEntry({
+          id: `LEDGER-${appData.id}-2`,
+          applicationId: appData.id,
+          eventType: 'SCRUTINY_PASSED',
+          actor: 'officer',
+          payload: { status: 'EVC_REQUIRED', remarks: 'Eligible for physical campus inspection' },
+          timestamp: new Date(now - 8 * day).toISOString(),
+          prevHash: e1.hash,
+        });
+        this.ledger.set(appData.id, [e1, e2]);
+      } else {
+        this.ledger.set(appData.id, [e1]);
+      }
+    }
+
+    // Seed completed inspection for APP-2024-003
+    const seededAssignment: InspectionAssignment = {
+      id: `INSP-${app3Id}`,
+      applicationId: app3Id,
+      institutionName: app3.institutionName,
+      domain: 'CSE',
+      lat: app3.lat || 19.033,
+      lng: app3.lng || 73.0297,
+      scheduledDate: '2026-11-03',
+      inspectors: [
+        { id: 'INS-002', name: 'Dr. Sunita Patil', domain: 'CSE', homeCity: 'Pune, MH' },
+        { id: 'INS-003', name: 'Prof. Amit Verma', domain: 'CSE', homeCity: 'Nashik, MH' },
+      ],
+      status: 'COMPLETED',
+      report: {
+        id: `REP-${app3Id}`,
+        applicationId: app3Id,
+        inspectorId: 'INS-002',
+        findings: {
+          infrastructure: 'Academic block of 14,500 sq.m verified with adequate barrier-free accessibility.',
+          faculty: 'Faculty cadre ratio of 1:15 satisfied with requisite PhD qualifications.',
+          labs: '12 high-end computer laboratories equipped with licensed compilers and 1 Gbps broadband.',
+          remarks: 'Campus meets all norms. Recommend approval for intake expansion.',
+        },
+        recommendation: 'RECOMMENDED',
+        reportHash: 'a7b8c9d0e1f234567890abcdef1234567890abcdef1234567890abcdef123456',
+        submittedAt: new Date(now - 2 * day).toISOString(),
+      },
+      source: 'fallback',
+    };
+    this.inspections.set(seededAssignment.id, seededAssignment);
+    app3.scheduledInspection = seededAssignment;
+    this.applications.set(app3Id, app3);
   }
 }
 

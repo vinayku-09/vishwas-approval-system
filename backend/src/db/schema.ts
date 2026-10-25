@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, jsonb, integer, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, jsonb, integer, boolean, doublePrecision } from 'drizzle-orm/pg-core';
 
 /**
  * Neon Postgres schema definition using Drizzle ORM
@@ -15,6 +15,42 @@ export const applicationsTable = pgTable('applications', {
   deficiencies: jsonb('deficiencies').notNull().default('[]'),
   signoff: jsonb('signoff'),
   locked: boolean('locked').notNull().default(false),
+  lat: doublePrecision('lat'),
+  lng: doublePrecision('lng'),
+  domain: text('domain'), // CIVIL | CSE | ELECTRICAL | MECHANICAL
+  scheduledInspection: jsonb('scheduled_inspection'),
+});
+
+export const inspectorsTable = pgTable('inspectors', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  domain: text('domain').notNull(), // CIVIL | CSE | ELECTRICAL | MECHANICAL
+  homeCity: text('home_city').notNull(),
+  lat: doublePrecision('lat').notNull(),
+  lng: doublePrecision('lng').notNull(),
+  availableDates: jsonb('available_dates').notNull().default('[]'),
+});
+
+export const affiliationsTable = pgTable('affiliations', {
+  id: text('id').primaryKey(),
+  inspectorId: text('inspector_id').notNull(),
+  institutionName: text('institution_name').notNull(),
+  reason: text('reason').notNull(),
+});
+
+export const inspectionsTable = pgTable('inspections', {
+  id: text('id').primaryKey(),
+  applicationId: text('application_id').notNull(),
+  institutionName: text('institution_name').notNull(),
+  domain: text('domain').notNull(),
+  lat: doublePrecision('lat').notNull(),
+  lng: doublePrecision('lng').notNull(),
+  scheduledDate: text('scheduled_date').notNull(),
+  inspectors: jsonb('inspectors').notNull(),
+  status: text('status').notNull(), // SCHEDULED | COMPLETED
+  report: jsonb('report'),
+  source: text('source').notNull().default('fallback'), // ortools | fallback | manual
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const documentsTable = pgTable('documents', {

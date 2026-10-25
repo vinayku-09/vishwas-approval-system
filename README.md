@@ -1,6 +1,6 @@
 # Vishwas Approval System
 
-A full-stack, production-grade automation system for AICTE (All India Council for Technical Education) technical institution approvals. **Vishwas** replaces paper-heavy regulatory bureaucracy with verified document uploads, multimodal AI document extraction, deterministic rules scrutiny, human officer sign-off gates, daily compliance expiry monitoring with automated locking, and an append-only SHA-256 cryptographic audit ledger.
+A full-stack, automated prototype system for AICTE (All India Council for Technical Education) technical institution approvals. **Vishwas** replaces paper-heavy regulatory bureaucracy with verified document uploads, multimodal AI document extraction, deterministic rules scrutiny, human officer sign-off gates, daily compliance expiry monitoring with automated locking, vehicle routing inspector scheduling with conflict-of-interest exclusion, and an append-only SHA-256 cryptographic audit ledger.
 
 ---
 
@@ -83,6 +83,7 @@ Both the backend and frontend seamlessly fall back to local in-memory engines wh
 | `AI_GATEWAY_API_KEY` | Vercel AI SDK Gateway key for Multimodal Vision extraction | Uses deterministic mock extractor (`source: "mock"`) |
 | `EXTRACTION_MODEL` | Vision model ID (e.g. `gpt-4o-mini`, `gemini-1.5-flash`) | Defaults to `gpt-4o-mini` when AI Gateway is enabled |
 | `CRON_SECRET` | Bearer token protecting `/cron/expiry-check` | Accepts `Bearer dev-cron-secret` for local development & testing |
+| `OPTIMIZER_URL` | Endpoint of the Python Google OR-Tools VRP optimizer microservice | Uses built-in pure TypeScript vehicle routing solver (`optimizerFallback.ts`) with identical constraints |
 | `NEXT_PUBLIC_API_URL` | Frontend pointer to backend URL | Defaults to `http://localhost:4000` with offline mock fallback |
 
 ---
@@ -103,6 +104,10 @@ All endpoints return standard JSON. Errors return `{ "error": string }`.
 | `POST` | `/applications/:id/signoff` | Human officer sign-off (`CONFIRM \| OVERRIDE`) | Header: `x-role: officer`<br>Body: `{ decision, deficiencyIds, remarks }` |
 | `POST` | `/applications/:id/advance` | Advance workflow state (enforces sign-off & lock gates) | Header: `x-role: officer`<br>Body: `{ to: Status, remarks?, overrideRemarks? }` |
 | `GET` | `/applications/:id/compliance` | Get compliance documents with expiry states & days left | None |
+| `POST` | `/scheduling/optimize` | Run OR-Tools / Fallback VRP inspection scheduling (officer) | Header: `x-role: officer`<br>Body: `{ dateWindow: { start, end } }` |
+| `GET` | `/inspections` | List assigned EVC inspections (`?inspectorId=`) | None |
+| `POST` | `/applications/:id/schedule-evc` | Confirm & record EVC committee assignment | Header: `x-role: officer`<br>Body: `{ inspectorIds: [id1, id2], date }` |
+| `POST` | `/applications/:id/evc-report` | Committee files inspection report, advances state to `EVC_DONE` | Header: `x-role: committee`<br>Body: `{ inspectorId, observations, recommendations, passed, metrics }` |
 | `POST` | `/cron/expiry-check` | Daily job to recompute expiry tiers (90/60/30) & lock overdue apps | Header: `Authorization: Bearer <CRON_SECRET>` |
 | `GET` | `/notifications` | List compliance notifications (newest first) | None |
 | `POST` | `/notifications/:id/read` | Mark in-app alert as read | None |
@@ -130,9 +135,25 @@ Before an application can be transitioned to `REJECTED`, the regulatory rules ma
 
 ---
 
+## 🚗 EVC Inspector Vehicle Routing & Conflict-of-Interest Optimizer (Phase A)
+
+Automates the assignment of Expert Visit Committee (EVC) physical inspections for technical institutes entering `EVC_REQUIRED`:
+- **Dual Solver Architecture**:
+  - **Python Google OR-Tools Service** (`optimizer/api/optimize.py`): Deployable to Vercel Python runtime using Vehicle Routing with Time Windows (VRPTW).
+  - **Built-in TypeScript Fallback Solver** (`backend/src/services/optimizerFallback.ts`): Pure TS heuristic solver executing the identical constraint logic when `OPTIMIZER_URL` is omitted, ensuring 100% zero-setup operability.
+- **Strict Pre-Solve Conflict Exclusion**: Affiliations (alumni, prior employment, consulting, family) are completely removed from the candidate pool *before* routing runs, making conflicted assignments mathematically impossible.
+  - *Live Demonstration*: Mumbai-based `INS-001` is only 10 km from VJTI Mumbai (`APP-2024-005`), but is barred due to past employment affiliation. The optimizer automatically selects unconflicted experts from Pune (`INS-002`) and Nashik (`INS-003`).
+- **Domain Matching & 2-Inspector Teams**: Every institution is assigned exactly 2 distinct inspectors holding qualifications matching the application's domain (e.g. `CIVIL`, `CSE`, `MECHANICAL`, `ELECTRICAL`).
+- **Operational Constraints**: Operating hours 09:00 to 18:00 (9 hours max shift), 4.0 hours per on-site inspection, travel speed 40 km/h, road distance modeled as $\text{haversine} \times 1.3$.
+- **Efficiency Metrics**: Compares optimized routes against a naive first-fit baseline to calculate total travel km saved and percentage efficiency improvement.
+- **Unassigned Visit Diagnostics**: Visibly reports institutions that cannot be scheduled with precise regulatory reasons (e.g. `APP-2024-015` in Leh exceeds the daily 9-hour working shift window due to transit distance).
+- **Immutable Ledger Integration**: Writes `EVC_SCHEDULED` (inspector IDs, date, solver source) and `EVC_REPORT_SUBMITTED` (with cryptographic SHA-256 hash of findings, advancing the application to `EVC_DONE`).
+
+---
+
 ## 🧪 Automated Testing
 
-The backend includes 33 unit and pipeline tests running under Vitest:
+The backend includes 47 unit, pipeline, and scheduler tests running under Vitest:
 
 ```bash
 cd backend
@@ -140,13 +161,21 @@ npm test
 ```
 
 Test coverage includes:
-1. **Expiry State Boundaries**: Exact boundary tests at 91, 90, 60, 30, 1, 0, and -1 days.
-2. **Cron Idempotency**: Running `/cron/expiry-check` twice creates notifications once per tier.
-3. **Application Locking & Override**: Rejection with 423 when locked; permitted with officer override remarks.
-4. **Sign-Off Enforcement**: Rejection with 409 when advancing to REJECTED without CONFIRM sign-off.
-5. **Document Upload & Ledger Security**: Rejection of unsupported file types and files $> 10$ MB; verifying the ledger contains SHA-256 hashes but never raw file bytes.
-6. **AI Extraction Retry**: Schema validation failure triggers one retry, and fails with a clear error on persistent failure.
-7. **State Machine & Ledger Integrity**: Valid transitions, terminal states, and tamper detection.
+1. **EVC Distance & Haversine Math**: Accurate road distance factor ($\times 1.3$) and travel duration.
+2. **Conflict of Interest Filtering**: Conflicted inspectors are excluded pre-solve.
+3. **Domain Matching & Distinct Pairs**: Verifies inspectors match academic domains and are distinct individuals.
+4. **Demonstration Seed Case**: Verifies `INS-001` is skipped for VJTI in favor of `INS-002` and `INS-003`.
+5. **Time Window & Unassigned Diagnostics**: Validates unreachable remote locations are cleanly reported as unassigned.
+6. **Efficiency Baseline Comparison**: Validates positive distance savings metric.
+7. **Role & Conflict API Validation**: 403 on non-officer schedule attempts, 400 on conflicted or duplicate inspector assignments.
+8. **EVC Report Submission & Hash Chain**: Validates SHA-256 report hashing and state advancement to `EVC_DONE`.
+9. **Expiry State Boundaries**: Exact boundary tests at 91, 90, 60, 30, 1, 0, and -1 days.
+10. **Cron Idempotency**: Running `/cron/expiry-check` twice creates notifications once per tier.
+11. **Application Locking & Override**: Rejection with 423 when locked; permitted with officer override remarks.
+12. **Sign-Off Enforcement**: Rejection with 409 when advancing to REJECTED without CONFIRM sign-off.
+13. **Document Upload & Ledger Security**: Rejection of unsupported file types and files $> 10$ MB; verifying the ledger contains SHA-256 hashes but never raw file bytes.
+14. **AI Extraction Retry**: Schema validation failure triggers one retry, and fails with a clear error on persistent failure.
+15. **State Machine & Ledger Integrity**: Valid transitions, terminal states, and tamper detection.
 
 ---
 
@@ -161,6 +190,7 @@ Test coverage includes:
    - `DATABASE_URL` (optional, Neon Postgres)
    - `BLOB_READ_WRITE_TOKEN` (optional, Vercel Blob)
    - `AI_GATEWAY_API_KEY` (optional, Vercel AI SDK Gateway)
+   - `OPTIMIZER_URL` (optional, Python OR-Tools microservice)
    - `CRON_SECRET` (secret for `/cron/expiry-check`)
 
 ### Deploying the Frontend
@@ -182,5 +212,6 @@ Test coverage includes:
 - [x] Human officer review & sign-off gate (`/applications/:id/signoff`)
 - [x] Daily compliance document expiry monitor with automated lock (`/cron/expiry-check`)
 - [x] In-app notifications & navbar alert bell (`NotificationBell.tsx`)
-- [ ] // TODO(next): OR-Tools constraint solver for Expert Visit Committee (EVC) conflict-of-interest scheduling
+- [x] Phase A: Google OR-Tools & TypeScript VRP solver for EVC scheduling with conflict-of-interest exclusion (`optimizer/`, `scheduler.ts`)
+- [ ] // TODO(next): Phase B: Authentication, RBAC & Role Isolation
 - [ ] // TODO(next): Smart contract anchor on Polygon / Hyperledger for multi-state decentralized notary

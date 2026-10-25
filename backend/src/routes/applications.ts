@@ -1,13 +1,40 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
 import { store } from '../db/store.js';
-import { ApplicationType, ComplianceDocument, Role, SignoffDecision, SignoffRecord, Status } from '../types.js';
+import {
+  ApplicationType,
+  ComplianceDocument,
+  EvcReport,
+  Role,
+  SignoffDecision,
+  SignoffRecord,
+  Status,
+} from '../types.js';
 import { evaluateRules } from '../services/rules.js';
 import { validateTransition } from '../services/workflow.js';
 import { extractApplicationDocuments } from '../services/extractor.js';
 import { computeExpiryState } from '../services/expiry.js';
+import { canonicalJson } from '../services/ledger.js';
+import { scheduleSingleEvc } from '../services/scheduler.js';
 
 export const applicationsRouter = new Hono();
+
+const scheduleEvcSchema = z.object({
+  inspectorIds: z.tuple([z.string(), z.string()]),
+  scheduledDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'scheduledDate must be in format YYYY-MM-DD'),
+  source: z.enum(['ortools', 'fallback', 'manual']).optional(),
+});
+
+const evcReportSchema = z.object({
+  findings: z.object({
+    infrastructure: z.string().min(3, 'Infrastructure evaluation required'),
+    faculty: z.string().min(3, 'Faculty evaluation required'),
+    labs: z.string().min(3, 'Laboratories evaluation required'),
+    remarks: z.string().min(3, 'Remarks required'),
+  }),
+  recommendation: z.enum(['RECOMMENDED', 'DEFICIENT'] as const),
+});
 
 const createApplicationSchema = z.object({
   institutionName: z.string().min(3, 'Institution name must be at least 3 characters'),
@@ -388,4 +415,137 @@ applicationsRouter.post('/:id/scrutiny', async (c) => {
     results,
     allPassed,
   });
+});
+
+// POST /applications/:id/schedule-evc (Officer role)
+// Schedules 2 distinct, conflict-free, domain-qualified inspectors for physical inspection
+applicationsRouter.post('/:id/schedule-evc', async (c) => {
+  const role = (c.req.header('x-role') || 'officer') as Role;
+  if (role !== 'officer') {
+    return c.json({ error: 'Forbidden: EVC scheduling requires officer role' }, 403);
+  }
+
+  const id = c.req.param('id');
+  const application = await store.getApplication(id);
+  if (!application) {
+    return c.json({ error: `Application '${id}' not found` }, 404);
+  }
+
+  if (application.locked) {
+    return c.json({ error: 'Application is locked due to expired compliance documents' }, 423);
+  }
+
+  const body = await c.req.json().catch(() => null);
+  const parsed = scheduleEvcSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.errors.map((e) => e.message).join(', ') }, 400);
+  }
+
+  const scheduleRes = await scheduleSingleEvc(
+    application,
+    parsed.data.inspectorIds,
+    parsed.data.scheduledDate,
+    parsed.data.source || 'fallback'
+  );
+
+  if (!scheduleRes.success || !scheduleRes.assignment) {
+    return c.json({ error: scheduleRes.error || 'Failed to schedule inspection' }, 400);
+  }
+
+  // Record ledger entry
+  await store.recordLedger(id, 'EVC_SCHEDULED', role, {
+    inspectorIds: parsed.data.inspectorIds,
+    scheduledDate: parsed.data.scheduledDate,
+    source: parsed.data.source || 'fallback',
+    institutionName: application.institutionName,
+    teamSize: 2,
+    domain: application.domain || 'CSE',
+  });
+
+  const updatedApp = await store.updateApplication(id, {
+    scheduledInspection: scheduleRes.assignment,
+  });
+
+  return c.json({
+    application: updatedApp,
+    assignment: scheduleRes.assignment,
+    message: 'Inspection team successfully scheduled and recorded in audit ledger',
+  }, 201);
+});
+
+// POST /applications/:id/evc-report (Committee role)
+// Submits physical inspection findings, hashes the report, and advances state to EVC_DONE
+applicationsRouter.post('/:id/evc-report', async (c) => {
+  const role = (c.req.header('x-role') || 'committee') as Role;
+  if (role !== 'committee' && role !== 'officer') {
+    return c.json({ error: 'Forbidden: EVC report submission requires committee or officer role' }, 403);
+  }
+
+  const id = c.req.param('id');
+  const application = await store.getApplication(id);
+  if (!application) {
+    return c.json({ error: `Application '${id}' not found` }, 404);
+  }
+
+  if (application.status !== 'EVC_REQUIRED') {
+    return c.json({
+      error: `Invalid application status '${application.status}'. EVC report can only be submitted for applications in 'EVC_REQUIRED'`,
+    }, 400);
+  }
+
+  const body = await c.req.json().catch(() => null);
+  const parsed = evcReportSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.errors.map((e) => e.message).join(', ') }, 400);
+  }
+
+  // Compute canonical cryptographic hash of report findings
+  const reportHash = createHash('sha256')
+    .update(canonicalJson(parsed.data.findings))
+    .digest('hex');
+
+  const reportId = `REP-${id}-${Date.now()}`;
+  const actorId = c.req.header('x-actor') || 'INS-002';
+
+  const report: EvcReport = {
+    id: reportId,
+    applicationId: id,
+    inspectorId: actorId,
+    findings: parsed.data.findings,
+    recommendation: parsed.data.recommendation,
+    reportHash,
+    submittedAt: new Date().toISOString(),
+  };
+
+  // State machine transition: EVC_REQUIRED -> EVC_DONE
+  const transitionCheck = validateTransition(application.status, 'EVC_DONE');
+  if (!transitionCheck.valid) {
+    return c.json({ error: transitionCheck.error }, 400);
+  }
+
+  await store.saveEvcReport(id, report);
+  const updatedApp = await store.updateApplication(id, {
+    status: 'EVC_DONE',
+  });
+
+  // Record ledger entry
+  await store.recordLedger(id, 'EVC_REPORT_SUBMITTED', role, {
+    reportId,
+    reportHash,
+    recommendation: parsed.data.recommendation,
+    actorId,
+    previousStatus: 'EVC_REQUIRED',
+    newStatus: 'EVC_DONE',
+    findingsSummary: {
+      infrastructure: parsed.data.findings.infrastructure.slice(0, 100),
+      faculty: parsed.data.findings.faculty.slice(0, 100),
+      labs: parsed.data.findings.labs.slice(0, 100),
+    },
+  });
+
+  return c.json({
+    application: updatedApp,
+    report,
+    message: 'EVC inspection report submitted and hashed to tamper-evident ledger',
+  }, 201);
 });

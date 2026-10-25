@@ -5,10 +5,15 @@ import {
   Deficiency,
   DocumentMetadata,
   DocumentType,
+  EvcReport,
+  EvcReportFindings,
   ExtractedFields,
   ExtractionResult,
+  InspectionAssignment,
+  Inspector,
   LedgerEntry,
   Notification,
+  OptimizationResult,
   Role,
   SignoffDecision,
   SignoffRecord,
@@ -19,6 +24,9 @@ import {
   INITIAL_MOCK_APPLICATIONS,
   INITIAL_MOCK_COMPLIANCE,
   INITIAL_MOCK_DOCUMENTS,
+  INITIAL_MOCK_INSPECTIONS,
+  INITIAL_MOCK_INSPECTORS,
+  INITIAL_MOCK_AFFILIATIONS,
   INITIAL_MOCK_LEDGER,
   INITIAL_MOCK_NOTIFICATIONS,
 } from './mock';
@@ -30,6 +38,7 @@ let localDocuments: Record<string, DocumentMetadata[]> = JSON.parse(JSON.stringi
 let localCompliance: Record<string, ComplianceDocument[]> = JSON.parse(JSON.stringify(INITIAL_MOCK_COMPLIANCE));
 let localNotifications: Notification[] = [...INITIAL_MOCK_NOTIFICATIONS];
 let localLedger: Record<string, LedgerEntry[]> = JSON.parse(JSON.stringify(INITIAL_MOCK_LEDGER));
+let localInspections: InspectionAssignment[] = JSON.parse(JSON.stringify(INITIAL_MOCK_INSPECTIONS));
 
 export function getStoredRole(): Role {
   if (typeof window === 'undefined') return 'institution';
@@ -496,4 +505,220 @@ export async function tamperLedger(
     data: { success: false, message: 'No entries to tamper' },
     isDemo: true,
   };
+}
+
+// 12. Get Inspections
+export async function getInspections(
+  inspectorId?: string
+): Promise<{ data: InspectionAssignment[]; isDemo: boolean }> {
+  const query = inspectorId ? `?inspectorId=${encodeURIComponent(inspectorId)}` : '';
+  const res = await request<InspectionAssignment[]>(`/inspections${query}`);
+
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+
+  let list = [...localInspections];
+  if (inspectorId) {
+    list = list.filter((i) => i.inspectors.some((ins) => ins.id === inspectorId));
+  }
+  return { data: list, isDemo: true };
+}
+
+// 13. Run EVC Optimizer
+export async function optimizeScheduling(options: {
+  startDate?: string;
+  endDate?: string;
+  applicationIds?: string[];
+} = {}): Promise<{ data: OptimizationResult; isDemo: boolean; error?: string }> {
+  const res = await request<OptimizationResult>('/scheduling/optimize', {
+    method: 'POST',
+    body: JSON.stringify(options),
+  });
+
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+
+  // Local fallback mock calculation
+  const pendingEvc = localApplications.filter((a) => a.status === 'EVC_REQUIRED');
+  const assignments: InspectionAssignment[] = [];
+  const excludedConflicts = [
+    {
+      inspectorId: 'INS-001',
+      inspectorName: 'Dr. Rajesh Sharma',
+      institutionName: 'Veermata Jijabai Technological Institute (VJTI)',
+      reason: 'Former Department Head & Professor (2018-2023)',
+    },
+  ];
+
+  for (const app of pendingEvc) {
+    if (app.id === 'APP-2024-015') continue; // Unassigned demo
+    const candidateInspectors = INITIAL_MOCK_INSPECTORS.filter(
+      (ins) => ins.domain === (app.domain || 'CSE') && ins.id !== 'INS-001'
+    ).slice(0, 2);
+
+    if (candidateInspectors.length >= 2) {
+      assignments.push({
+        id: `INSP-${app.id}`,
+        applicationId: app.id,
+        institutionName: app.institutionName,
+        domain: app.domain || 'CSE',
+        lat: app.lat || 19.076,
+        lng: app.lng || 72.877,
+        scheduledDate: options.startDate || '2026-11-04',
+        inspectors: candidateInspectors.map((i) => ({
+          id: i.id,
+          name: i.name,
+          domain: i.domain,
+          homeCity: i.homeCity,
+        })),
+        status: 'SCHEDULED',
+        source: 'fallback',
+      });
+    }
+  }
+
+  return {
+    data: {
+      source: 'fallback',
+      routes: [
+        {
+          inspectorId: 'INS-002',
+          inspectorName: 'Dr. Sunita Patil',
+          homeCity: 'Pune, MH',
+          date: options.startDate || '2026-11-04',
+          stops: [
+            {
+              applicationId: 'APP-2024-005',
+              institutionName: 'Veermata Jijabai Technological Institute (VJTI)',
+              lat: 18.975,
+              lng: 72.8258,
+              arrivalTime: '10:00',
+              departureTime: '14:00',
+              distanceFromPrevKm: 142.5,
+            },
+          ],
+          totalKm: 285.0,
+        },
+      ],
+      baselineKm: 1240.0,
+      optimizedKm: 810.0,
+      percentSaved: 34.7,
+      unassigned: [
+        {
+          applicationId: 'APP-2024-015',
+          institutionName: 'Remote Himalayan Institute of Tech, Leh',
+          reason: 'Travel and 4-hour inspection time exceeds working hours limit (09:00 - 18:00)',
+        },
+      ],
+      excludedConflictsCount: excludedConflicts.length,
+      excludedConflicts,
+      assignments,
+    },
+    isDemo: true,
+  };
+}
+
+// 14. Schedule Single EVC Inspection
+export async function scheduleEvc(
+  applicationId: string,
+  inspectorIds: [string, string],
+  scheduledDate: string,
+  source: 'ortools' | 'fallback' | 'manual' = 'manual'
+): Promise<{ data: { assignment: InspectionAssignment }; isDemo: boolean; error?: string }> {
+  const res = await request<{ assignment: InspectionAssignment }>(
+    `/applications/${applicationId}/schedule-evc`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ inspectorIds, scheduledDate, source }),
+    }
+  );
+
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+
+  const app = localApplications.find((a) => a.id === applicationId);
+  const ins1 = INITIAL_MOCK_INSPECTORS.find((i) => i.id === inspectorIds[0]);
+  const ins2 = INITIAL_MOCK_INSPECTORS.find((i) => i.id === inspectorIds[1]);
+
+  if (!app || !ins1 || !ins2) {
+    return { data: null as unknown as { assignment: InspectionAssignment }, isDemo: true, error: 'Application or inspectors not found' };
+  }
+
+  const newAssignment: InspectionAssignment = {
+    id: `INSP-${applicationId}`,
+    applicationId,
+    institutionName: app.institutionName,
+    domain: app.domain || 'CSE',
+    lat: app.lat || 19.076,
+    lng: app.lng || 72.877,
+    scheduledDate,
+    inspectors: [
+      { id: ins1.id, name: ins1.name, domain: ins1.domain, homeCity: ins1.homeCity },
+      { id: ins2.id, name: ins2.name, domain: ins2.domain, homeCity: ins2.homeCity },
+    ],
+    status: 'SCHEDULED',
+    source,
+  };
+
+  app.scheduledInspection = newAssignment;
+  localInspections.push(newAssignment);
+
+  return { data: { assignment: newAssignment }, isDemo: true };
+}
+
+// 15. Submit EVC Report
+export async function submitEvcReport(
+  applicationId: string,
+  payload: {
+    findings: EvcReportFindings;
+    recommendation: 'RECOMMENDED' | 'DEFICIENT';
+    actorId?: string;
+  }
+): Promise<{ data: { application: Application; report: EvcReport }; isDemo: boolean; error?: string }> {
+  const res = await request<{ application: Application; report: EvcReport }>(
+    `/applications/${applicationId}/evc-report`,
+    {
+      method: 'POST',
+      headers: { 'x-actor': payload.actorId || 'INS-002' },
+      body: JSON.stringify({
+        findings: payload.findings,
+        recommendation: payload.recommendation,
+      }),
+    }
+  );
+
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+
+  const app = localApplications.find((a) => a.id === applicationId);
+  if (!app) {
+    return { data: null as unknown as { application: Application; report: EvcReport }, isDemo: true, error: 'Application not found' };
+  }
+
+  app.status = 'EVC_DONE';
+  const report: EvcReport = {
+    id: `REP-${applicationId}`,
+    applicationId,
+    inspectorId: payload.actorId || 'INS-002',
+    findings: payload.findings,
+    recommendation: payload.recommendation,
+    reportHash: 'f4b3e2a1d0c9b8a7f6e5d4c3b2a10987654321fedcba0987654321abcdef1234',
+    submittedAt: new Date().toISOString(),
+  };
+
+  const insp = localInspections.find((i) => i.applicationId === applicationId);
+  if (insp) {
+    insp.status = 'COMPLETED';
+    insp.report = report;
+  }
+  if (app.scheduledInspection) {
+    app.scheduledInspection.status = 'COMPLETED';
+    app.scheduledInspection.report = report;
+  }
+
+  return { data: { application: app, report }, isDemo: true };
 }
