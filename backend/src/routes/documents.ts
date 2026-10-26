@@ -4,6 +4,7 @@ import { store } from '../db/store.js';
 import { DocumentMetadata, DocumentType } from '../types.js';
 import { getStorageService } from '../services/storage.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { canReadApplication } from '../services/access.js';
 
 export const documentsRouter = new Hono();
 
@@ -28,9 +29,8 @@ documentsRouter.post('/:id/documents', async (c) => {
     return c.json({ error: `Application '${applicationId}' not found` }, 404);
   }
 
-  // Institution role isolation
-  if (user.role === 'INSTITUTION' && user.institutionName && app.institutionName !== user.institutionName) {
-    return c.json({ error: "Forbidden: Access denied to other institution's application" }, 403);
+  if (!canReadApplication(user, app)) {
+    return c.json({ error: 'Forbidden: Application is outside your scope' }, 403);
   }
 
   const body = await c.req.parseBody().catch(() => null);
@@ -122,9 +122,8 @@ documentsRouter.get('/:id/documents', async (c) => {
     return c.json({ error: `Application '${applicationId}' not found` }, 404);
   }
 
-  // Institution role isolation
-  if (user.role === 'INSTITUTION' && user.institutionName && app.institutionName !== user.institutionName) {
-    return c.json({ error: "Forbidden: Access denied to other institution's documents" }, 403);
+  if (!canReadApplication(user, app)) {
+    return c.json({ error: 'Forbidden: Application is outside your scope' }, 403);
   }
 
   const docs = await store.getDocuments(applicationId);

@@ -19,9 +19,9 @@ export function DemoBanner() {
       <div className="max-w-7xl mx-auto w-full flex items-center gap-2">
         <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
         <span>
-          <strong>Demo Data:</strong> The backend is unreachable or the current
-          session is not authorised. Showing local seed records until the API is
-          available.
+          <strong>Demo Data:</strong> The backend is unreachable. Showing local
+          seed records until the API is available. Sign-in and API errors are
+          reported separately and never replaced with demo data.
         </span>
       </div>
     </div>

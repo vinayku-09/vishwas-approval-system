@@ -6,12 +6,12 @@ Vishwas is the AICTE approval-workflow and compliance-monitoring platform for Sm
 
 ## Current Status
 
-Last verified locally on **2026-10-26**. No deployment was performed in Step 0.
+Last verified locally on **2026-10-26**. No deployment has been performed.
 
 | Check | Result |
 | :--- | :--- |
-| Backend typecheck | Passed (`npx tsc --noEmit`) |
-| Backend tests | **97 passed / 97** in 8 test files |
+| Backend typecheck | Passed (`npm run build`) |
+| Backend tests | **107 passed / 107** in 9 test files |
 | Frontend production build | Passed (`next build`, 9/9 static pages) |
 | Neon migration | Applied; 12 public tables plus `drizzle.__drizzle_migrations` |
 | Active backend store | Postgres / Neon |
@@ -23,7 +23,7 @@ Last verified locally on **2026-10-26**. No deployment was performed in Step 0.
 
 - JWT login, bcrypt password verification, 8-hour signed sessions and role-aware claims.
 - Legacy demo-header fallback is disabled by default with `ALLOW_DEMO_HEADER_ROLE=false`.
-- Role/region scoping for notifications and escalations, with authenticated boundary tests.
+- Role/region scoping for applications, documents, inspections, ledger views, notifications and escalations, with authenticated boundary tests.
 - Strict workflow state machine, human sign-off gate for rejection, and cryptographic ledger writes.
 - Neon Postgres persistence with Drizzle migrations and a deterministic demo seed.
 - Multipart PDF/PNG/JPG document upload with SHA-256 hashing and local or Vercel Blob storage.
@@ -49,7 +49,7 @@ Last verified locally on **2026-10-26**. No deployment was performed in Step 0.
 - **Part 4:** undertakings, evidence verification, renewals and unlock-after-renewal.
 - **Part 6:** six reports with CSV export, searchable audit view and expanded demo seed.
 - Authenticity checks, RAG, fraud map and QR certificates remain out of scope until Parts 2, 3, 4 and 6 are complete.
-- Full role/region scoping for every read endpoint, including ledger views, still needs review before deployment.
+- Part 2a closes the application, document, inspection and ledger read-scoping gaps. Re-review all new read endpoints before deployment.
 - The universal decision-screen safeguard notice is not yet applied to every decision screen.
 
 ## Step 0 Verification
@@ -172,7 +172,7 @@ Automated actions support the approval process and do not replace decisions of t
 | E | Renewals | Not built | Part 4 will add renewal submission, verification, validity update and application unlock. |
 | F | Reports and demo data | Not built | Part 6 will add six filtered reports, CSV export, searchable audit view and a larger demo seed. |
 | Safeguard | Human authority and recorded reasons | Partial | Rejection sign-off and ledger writes exist; universal decision notice, return reasons and override safeguards are pending. |
-| Audit | Every state change and alert in ledger | Partial | State changes and alerts write ledger entries; ledger read endpoints still need role-scoping review. |
+| Audit | Every state change and alert in ledger | Partial | State changes and alerts write ledger entries; full reads are auth and role/region scoped, and public verification returns validity metadata only. |
 
 ## Documentation
 

@@ -60,6 +60,7 @@ const NEXT_STATE_TRANSITIONS: Record<Status, Status[]> = {
 export default function OfficerPage() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
 
@@ -89,13 +90,22 @@ export default function OfficerPage() {
 
   const loadData = async () => {
     setLoading(true);
+    setLoadError(null);
     const filters: { status?: Status; type?: ApplicationType } = {};
     if (statusFilter !== 'ALL') filters.status = statusFilter as Status;
     if (typeFilter !== 'ALL') filters.type = typeFilter as ApplicationType;
 
-    const res = await getApplications(filters);
-    setApplications(res.data || []);
-    setLoading(false);
+    try {
+      const res = await getApplications(filters);
+      setApplications(res.data || []);
+    } catch (err) {
+      setApplications([]);
+      setLoadError(
+        err instanceof Error ? err.message : 'Unable to load the review queue.'
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleRunOptimizer = async () => {
@@ -286,6 +296,12 @@ export default function OfficerPage() {
           <span>Refresh Queue</span>
         </button>
       </div>
+
+      {loadError && (
+        <div className="p-4 rounded-xl border border-red-200 bg-red-50 text-red-800 text-xs">
+          <strong>Could not load data:</strong> {loadError}
+        </div>
+      )}
 
       {/* Mode Switcher Tabs */}
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2">

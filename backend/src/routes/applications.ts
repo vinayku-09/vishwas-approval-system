@@ -10,7 +10,8 @@ import {
   SignoffRecord,
   Status,
 } from '../types.js';
-import { optionalAuthMiddleware, resolveActorRole } from '../middleware/auth.js';
+import { authMiddleware, resolveActorRole } from '../middleware/auth.js';
+import { canReadApplication } from '../services/access.js';
 import { evaluateRules } from '../services/rules.js';
 import { validateTransition } from '../services/workflow.js';
 import { extractApplicationDocuments } from '../services/extractor.js';
@@ -20,7 +21,7 @@ import { scheduleSingleEvc } from '../services/scheduler.js';
 
 export const applicationsRouter = new Hono();
 
-applicationsRouter.use('*', optionalAuthMiddleware);
+applicationsRouter.use('*', authMiddleware);
 
 const scheduleEvcSchema = z.object({
   inspectorIds: z.tuple([z.string(), z.string()]),
@@ -80,17 +81,19 @@ const signoffSchema = z.object({
   remarks: z.string().optional(),
 });
 
-// GET /applications - list with optional filters
+// GET /applications - list with optional filters, scoped to the caller
 applicationsRouter.get('/', async (c) => {
+  const user = c.get('user');
   const status = c.req.query('status') as Status | undefined;
   const type = c.req.query('type') as ApplicationType | undefined;
 
   const applications = await store.listApplications({ status, type });
-  return c.json(applications);
+  return c.json(applications.filter((application) => canReadApplication(user, application)));
 });
 
 // POST /applications - create new application
 applicationsRouter.post('/', async (c) => {
+  const user = c.get('user');
   const role = resolveActorRole(c, 'institution');
   const body = await c.req.json().catch(() => null);
 
@@ -99,8 +102,14 @@ applicationsRouter.post('/', async (c) => {
     return c.json({ error: parsed.error.errors.map((e) => e.message).join(', ') }, 400);
   }
 
+  // An institution account can only submit applications under its own name.
+  const institutionName =
+    user.role === 'INSTITUTION' && user.institutionName
+      ? user.institutionName
+      : parsed.data.institutionName;
+
   const application = await store.createApplication({
-    institutionName: parsed.data.institutionName,
+    institutionName,
     type: parsed.data.type,
     extracted: parsed.data.extracted,
     actor: role,
@@ -111,11 +120,16 @@ applicationsRouter.post('/', async (c) => {
 
 // GET /applications/:id - get details
 applicationsRouter.get('/:id', async (c) => {
+  const user = c.get('user');
   const id = c.req.param('id');
   const application = await store.getApplication(id);
 
   if (!application) {
     return c.json({ error: `Application '${id}' not found` }, 404);
+  }
+
+  if (!canReadApplication(user, application)) {
+    return c.json({ error: 'Forbidden: Application is outside your scope' }, 403);
   }
 
   return c.json(application);
@@ -128,10 +142,14 @@ applicationsRouter.post('/:id/extract', async (c) => {
     return c.json({ error: 'Forbidden: Extraction action requires officer role' }, 403);
   }
 
+  const user = c.get('user');
   const id = c.req.param('id');
   const application = await store.getApplication(id);
   if (!application) {
     return c.json({ error: `Application '${id}' not found` }, 404);
+  }
+  if (!canReadApplication(user, application)) {
+    return c.json({ error: 'Forbidden: Application is outside your scope' }, 403);
   }
 
   // Fetch uploaded documents for this application
@@ -227,10 +245,14 @@ applicationsRouter.post('/:id/signoff', async (c) => {
     return c.json({ error: 'Forbidden: Sign-off requires officer role' }, 403);
   }
 
+  const user = c.get('user');
   const id = c.req.param('id');
   const application = await store.getApplication(id);
   if (!application) {
     return c.json({ error: `Application '${id}' not found` }, 404);
+  }
+  if (!canReadApplication(user, application)) {
+    return c.json({ error: 'Forbidden: Application is outside your scope' }, 403);
   }
 
   const body = await c.req.json().catch(() => null);
@@ -282,10 +304,14 @@ applicationsRouter.post('/:id/advance', async (c) => {
     return c.json({ error: 'Forbidden: Advancing workflow requires officer role' }, 403);
   }
 
+  const user = c.get('user');
   const id = c.req.param('id');
   const application = await store.getApplication(id);
   if (!application) {
     return c.json({ error: `Application '${id}' not found` }, 404);
+  }
+  if (!canReadApplication(user, application)) {
+    return c.json({ error: 'Forbidden: Application is outside your scope' }, 403);
   }
 
   const body = await c.req.json().catch(() => null);
@@ -353,10 +379,14 @@ applicationsRouter.post('/:id/advance', async (c) => {
 
 // GET /applications/:id/compliance - list compliance documents with expiry states
 applicationsRouter.get('/:id/compliance', async (c) => {
+  const user = c.get('user');
   const id = c.req.param('id');
   const app = await store.getApplication(id);
   if (!app) {
     return c.json({ error: `Application '${id}' not found` }, 404);
+  }
+  if (!canReadApplication(user, app)) {
+    return c.json({ error: 'Forbidden: Application is outside your scope' }, 403);
   }
 
   const docs = await store.getComplianceDocuments(id);
@@ -374,10 +404,14 @@ applicationsRouter.post('/:id/scrutiny', async (c) => {
     return c.json({ error: 'Forbidden: Scrutiny action requires officer role' }, 403);
   }
 
+  const user = c.get('user');
   const id = c.req.param('id');
   const application = await store.getApplication(id);
   if (!application) {
     return c.json({ error: `Application '${id}' not found` }, 404);
+  }
+  if (!canReadApplication(user, application)) {
+    return c.json({ error: 'Forbidden: Application is outside your scope' }, 403);
   }
 
   const body = await c.req.json().catch(() => ({}));
@@ -427,10 +461,14 @@ applicationsRouter.post('/:id/schedule-evc', async (c) => {
     return c.json({ error: 'Forbidden: EVC scheduling requires officer role' }, 403);
   }
 
+  const user = c.get('user');
   const id = c.req.param('id');
   const application = await store.getApplication(id);
   if (!application) {
     return c.json({ error: `Application '${id}' not found` }, 404);
+  }
+  if (!canReadApplication(user, application)) {
+    return c.json({ error: 'Forbidden: Application is outside your scope' }, 403);
   }
 
   if (application.locked) {
@@ -483,10 +521,14 @@ applicationsRouter.post('/:id/evc-report', async (c) => {
     return c.json({ error: 'Forbidden: EVC report submission requires committee or officer role' }, 403);
   }
 
+  const user = c.get('user');
   const id = c.req.param('id');
   const application = await store.getApplication(id);
   if (!application) {
     return c.json({ error: `Application '${id}' not found` }, 404);
+  }
+  if (!canReadApplication(user, application)) {
+    return c.json({ error: 'Forbidden: Application is outside your scope' }, 403);
   }
 
   if (application.status !== 'EVC_REQUIRED') {

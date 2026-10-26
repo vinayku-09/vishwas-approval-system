@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-10-26 - Part 2a: scoped reads and honest API errors
+
+### Changed
+
+- Frontend demo fallback now triggers only on network-level failures. Any HTTP response clears demo mode, and 401/403/4xx/5xx errors are surfaced as `ApiError` instead of silently showing seed records.
+- Application list, detail, document, inspection and ledger reads now require authentication and enforce role/region scope through shared `services/access.ts` rules.
+- Institution application creation always uses the authenticated institution name.
+- Public ledger verification remains unauthenticated and returns validity metadata only; full ledger reads require scope, and the tamper helper is CHIEF-only.
+- Officer, institution, committee and verification pages now display load errors instead of failing silently; the verify page shows a sign-in prompt for the full audit trail.
+- Demo banner copy now explains that demo data is used only when the backend is unreachable.
+- Added 10 authenticated scoping tests; backend suite is **107/107** across 9 files.
+
+### Verified
+
+- Backend typecheck (`npm run build`) passed.
+- Frontend production build passed with 9/9 static pages.
+- Scope tests cover INSTITUTION own-only, OFFICER WEST, OFFICER ALL, COMMITTEE WEST, CHIEF, inspections, documents, ledger reads and CHIEF-only tamper.
+
 ## 2026-10-26 - Step 0: Phase 1 verification
 
 ### Added

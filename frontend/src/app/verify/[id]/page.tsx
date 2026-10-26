@@ -18,7 +18,14 @@ import {
   FileCode,
 } from 'lucide-react';
 import { Application, LedgerEntry, VerificationResult } from '../../../lib/types';
-import { getApplication, getLedger, verifyLedger, tamperLedger } from '../../../lib/api';
+import {
+  getApplication,
+  getLedger,
+  verifyLedger,
+  tamperLedger,
+  getStoredUser,
+  isAuthenticated,
+} from '../../../lib/api';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { formatDate, shortHash } from '../../../lib/utils';
 
@@ -50,21 +57,57 @@ export default function VerifyPage() {
   const [loading, setLoading] = useState(true);
   const [tampering, setTampering] = useState(false);
   const [bannerMessage, setBannerMessage] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [accessNotice, setAccessNotice] = useState<string | null>(null);
+  const [isChief, setIsChief] = useState(false);
+
+  useEffect(() => {
+    setIsChief(getStoredUser()?.role?.toUpperCase() === 'CHIEF');
+  }, []);
 
   const loadData = async () => {
     if (!id) return;
     setLoading(true);
+    setLoadError(null);
+    setAccessNotice(null);
 
-    const [appRes, ledgerRes, verifyRes] = await Promise.all([
-      getApplication(id),
-      getLedger(id),
-      verifyLedger(id),
-    ]);
+    try {
+      const verifyRes = await verifyLedger(id);
+      setVerification(verifyRes.data || null);
 
-    setApplication(appRes.data);
-    setLedgerEntries(ledgerRes.data || []);
-    setVerification(verifyRes.data || null);
-    setLoading(false);
+      if (!isAuthenticated()) {
+        setApplication(null);
+        setLedgerEntries([]);
+        setAccessNotice(
+          'Sign in to view the institution details and the full audit trail. The cryptographic validity check above remains public.'
+        );
+        return;
+      }
+
+      try {
+        const [appRes, ledgerRes] = await Promise.all([
+          getApplication(id),
+          getLedger(id),
+        ]);
+        setApplication(appRes.data);
+        setLedgerEntries(ledgerRes.data || []);
+      } catch (err) {
+        setApplication(null);
+        setLedgerEntries([]);
+        setAccessNotice(
+          err instanceof Error
+            ? err.message
+            : 'Your account cannot access this audit trail.'
+        );
+      }
+    } catch (err) {
+      setVerification(null);
+      setLoadError(
+        err instanceof Error ? err.message : 'Unable to verify this application.'
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -80,7 +123,9 @@ export default function VerifyPage() {
       // Refresh verification to recompute hash chain immediately
       await loadData();
     } catch (err) {
-      console.error('Tampering error:', err);
+      setLoadError(
+        err instanceof Error ? err.message : 'Tamper simulation failed.'
+      );
     } finally {
       setTampering(false);
     }
@@ -173,27 +218,48 @@ export default function VerifyPage() {
           </div>
         )}
 
-        {/* Tamper Demonstration Box for Hackathon Reviewers */}
-        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-              <Bug className="w-4 h-4 text-amber-600" />
-              Evaluation Demo: Cryptographic Tamper Test
-            </span>
-            <p className="text-[11px] text-slate-500">
-              Simulate an unauthorized database hack modifying an entry payload without recalculating its SHA-256 hash. The verification algorithm will immediately flag the mismatch.
-            </p>
+        {loadError && (
+          <div className="p-4 rounded-xl border border-red-200 bg-red-50 text-red-800 text-xs">
+            <strong>Verification unavailable:</strong> {loadError}
           </div>
-          <button
-            onClick={handleSimulateTampering}
-            disabled={tampering}
-            type="button"
-            className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 flex-shrink-0 disabled:opacity-50"
-          >
-            {tampering && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-            <span>Simulate DB Tampering</span>
-          </button>
-        </div>
+        )}
+
+        {accessNotice && (
+          <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-xs">
+            {accessNotice}{' '}
+            {!isAuthenticated() && (
+              <Link
+                href={`/login?next=${encodeURIComponent(`/verify/${id}`)}`}
+                className="font-bold underline"
+              >
+                Sign in
+              </Link>
+            )}
+          </div>
+        )}
+
+        {isChief && (
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                <Bug className="w-4 h-4 text-amber-600" />
+                Evaluation Demo: Cryptographic Tamper Test (CHIEF only)
+              </span>
+              <p className="text-[11px] text-slate-500">
+                Simulate an unauthorized database hack modifying an entry payload without recalculating its SHA-256 hash. The verification algorithm will immediately flag the mismatch.
+              </p>
+            </div>
+            <button
+              onClick={handleSimulateTampering}
+              disabled={tampering}
+              type="button"
+              className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 flex-shrink-0 disabled:opacity-50"
+            >
+              {tampering && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+              <span>Simulate DB Tampering</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Cryptographic Hash Chain Entries */}

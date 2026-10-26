@@ -27,6 +27,7 @@ export default function CommitteePage() {
   const [inspections, setInspections] = useState<InspectionAssignment[]>([]);
   const [selectedInspectorId, setSelectedInspectorId] = useState<string>('ALL');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // EVC Report Filing Modal
@@ -53,12 +54,26 @@ export default function CommitteePage() {
 
   const loadData = async () => {
     setLoading(true);
-    const appRes = await getApplications();
-    setApplications(appRes.data || []);
+    setLoadError(null);
+    try {
+      const appRes = await getApplications();
+      setApplications(appRes.data || []);
 
-    const inspRes = await getInspections(selectedInspectorId === 'ALL' ? undefined : selectedInspectorId);
-    setInspections(inspRes.data || []);
-    setLoading(false);
+      const inspRes = await getInspections(
+        selectedInspectorId === 'ALL' ? undefined : selectedInspectorId
+      );
+      setInspections(inspRes.data || []);
+    } catch (err) {
+      setApplications([]);
+      setInspections([]);
+      setLoadError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to load inspections for your region.'
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -163,6 +178,12 @@ export default function CommitteePage() {
           </select>
         </div>
       </div>
+
+      {loadError && (
+        <div className="p-4 rounded-xl border border-red-200 bg-red-50 text-red-800 text-xs">
+          <strong>Could not load data:</strong> {loadError}
+        </div>
+      )}
 
       {/* Inspections Grid */}
       <div className="space-y-4">

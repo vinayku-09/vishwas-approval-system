@@ -47,6 +47,7 @@ import { formatDate, shortHash } from '../../lib/utils';
 export default function InstitutionPage() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedApp, setSelectedApp] = useState<Application | null>(null);
   const [activeDrawerTab, setActiveDrawerTab] = useState<'overview' | 'documents' | 'compliance'>('overview');
 
@@ -79,9 +80,18 @@ export default function InstitutionPage() {
 
   const loadData = async () => {
     setLoading(true);
-    const res = await getApplications();
-    setApplications(res.data || []);
-    setLoading(false);
+    setLoadError(null);
+    try {
+      const res = await getApplications();
+      setApplications(res.data || []);
+    } catch (err) {
+      setApplications([]);
+      setLoadError(
+        err instanceof Error ? err.message : 'Unable to load your applications.'
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -94,13 +104,24 @@ export default function InstitutionPage() {
 
     const fetchDetails = async () => {
       setLoadingDrawerData(true);
-      const [docsRes, compRes] = await Promise.all([
-        getDocuments(selectedApp.id),
-        getCompliance(selectedApp.id),
-      ]);
-      setAppDocuments(docsRes.data || []);
-      setAppCompliance(compRes.data?.documents || []);
-      setLoadingDrawerData(false);
+      try {
+        const [docsRes, compRes] = await Promise.all([
+          getDocuments(selectedApp.id),
+          getCompliance(selectedApp.id),
+        ]);
+        setAppDocuments(docsRes.data || []);
+        setAppCompliance(compRes.data?.documents || []);
+      } catch (err) {
+        setAppDocuments([]);
+        setAppCompliance([]);
+        setLoadError(
+          err instanceof Error
+            ? err.message
+            : 'Unable to load documents for this application.'
+        );
+      } finally {
+        setLoadingDrawerData(false);
+      }
     };
 
     fetchDetails();
@@ -219,6 +240,12 @@ export default function InstitutionPage() {
           </button>
         </div>
       </div>
+
+      {loadError && (
+        <div className="p-4 rounded-xl border border-red-200 bg-red-50 text-red-800 text-xs">
+          <strong>Could not load data:</strong> {loadError}
+        </div>
+      )}
 
       {/* Applications List */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">

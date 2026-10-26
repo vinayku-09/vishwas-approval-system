@@ -2,7 +2,14 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { store } from '../db/store.js';
 import { optimizeEvcSchedule } from '../services/scheduler.js';
-import { optionalAuthMiddleware, resolveActorRole } from '../middleware/auth.js';
+import {
+  authMiddleware,
+  optionalAuthMiddleware,
+  requireRole,
+  resolveActorRole,
+} from '../middleware/auth.js';
+import { canReadApplication } from '../services/access.js';
+import type { InspectionAssignment } from '../types.js';
 
 export const schedulingRouter = new Hono();
 
@@ -34,9 +41,24 @@ schedulingRouter.post('/optimize', optionalAuthMiddleware, async (c) => {
   return c.json(result);
 });
 
-// GET /inspections - Lists scheduled or completed inspections (Committee / Officer role)
-schedulingRouter.get('/inspections', async (c) => {
-  const inspectorId = c.req.query('inspectorId');
-  const inspections = await store.getInspections(inspectorId || undefined);
-  return c.json(inspections);
-});
+// GET /inspections - Lists scheduled or completed inspections (Committee / Officer / Chief)
+schedulingRouter.get(
+  '/inspections',
+  authMiddleware,
+  requireRole('OFFICER', 'COMMITTEE', 'CHIEF'),
+  async (c) => {
+    const user = c.get('user');
+    const inspectorId = c.req.query('inspectorId');
+    const inspections = await store.getInspections(inspectorId || undefined);
+
+    const visible: InspectionAssignment[] = [];
+    for (const inspection of inspections) {
+      const application = await store.getApplication(inspection.applicationId);
+      if (!application || canReadApplication(user, application)) {
+        visible.push(inspection);
+      }
+    }
+
+    return c.json(visible);
+  }
+);

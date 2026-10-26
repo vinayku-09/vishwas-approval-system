@@ -94,7 +94,9 @@ Every value above is a product placeholder, not an official AICTE rule. See `doc
 3. Signed-token claims take precedence over legacy demo headers.
 4. When `ALLOW_DEMO_HEADER_ROLE=false`, an `x-role` header without a JWT is rejected. Step 0 verified HTTP 401.
 5. Notification and escalation reads filter by role and region. Institution users see only their own records; regional officers see their region; `CHIEF` sees all.
-6. Application and ledger read scoping remains a pre-deployment gap and must be reviewed before production.
+6. `services/access.ts` centralises application scope: `CHIEF` and `ALL` regions are unrestricted, regional `OFFICER`/`COMMITTEE` users see their own region plus legacy `ALL`/unset regions, and `INSTITUTION` users see only their own institution.
+7. Application list/detail/mutations, document reads and uploads, inspection listings and full ledger reads use that scope. `GET /ledger/:id/verify` stays public and returns validity metadata only; `POST /ledger/:id/tamper` is `CHIEF`-only.
+8. The frontend falls back to local demo data only when the backend is unreachable. HTTP errors are surfaced to the user and never converted into demo records.
 
 ## 6. Workflow and Human Control
 

@@ -63,7 +63,21 @@ const DEMO_ROLES = ['institution', 'officer', 'committee', 'chief'] as const;
 let demoModeActive = false;
 const demoModeListeners = new Set<(active: boolean) => void>();
 
-/** True when any API call has fallen back to local demo data in this session. */
+/**
+ * Raised when the backend is reachable but rejects the request (401/403/4xx/5xx).
+ * Callers must surface this to the user; it never triggers demo-data fallback.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+/** True when a network-level failure forced local demo data for this session. */
 export function isDemoModeActive(): boolean {
   return demoModeActive;
 }
@@ -271,42 +285,54 @@ async function request<T>(
     headers.set('x-role', role);
   }
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3500);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3500);
 
-    const res = await fetch(`${API_BASE_URL}${path}`, {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`, {
       ...options,
       headers,
       signal: controller.signal,
     });
-    clearTimeout(timeout);
-
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      if (res.status === 401 && token) {
-        clearSession();
-        if (
-          typeof window !== 'undefined' &&
-          window.location.pathname !== '/login'
-        ) {
-          const next = `${window.location.pathname}${window.location.search}`;
-          window.location.assign(
-            `/login?expired=1&next=${encodeURIComponent(next)}`
-          );
-        }
-      }
-      throw new Error(errJson.error || `HTTP error ${res.status}: ${res.statusText}`);
-    }
-
-    const data = (await res.json()) as T;
-    return { data, isDemo: false };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message =
+      err instanceof Error && err.name === 'AbortError'
+        ? 'Request timed out'
+        : err instanceof Error
+        ? err.message
+        : String(err);
     markDemoMode();
-    console.warn(`[Backend API Unavailable] Falling back to local mock data for ${path}:`, message);
+    console.warn(
+      `[Backend API Unreachable] Falling back to local mock data for ${path}:`,
+      message
+    );
     return { data: null as unknown as T, isDemo: true, error: message };
+  } finally {
+    clearTimeout(timeout);
   }
+
+  // Any HTTP response means the backend is reachable, so demo mode no longer applies.
+  clearDemoMode();
+
+  const body = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    const errJson = (body || {}) as { error?: string };
+    if (res.status === 401 && token) {
+      clearSession();
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        const next = `${window.location.pathname}${window.location.search}`;
+        window.location.assign(`/login?expired=1&next=${encodeURIComponent(next)}`);
+      }
+    }
+    throw new ApiError(
+      res.status,
+      errJson.error || `HTTP error ${res.status}: ${res.statusText}`
+    );
+  }
+
+  return { data: body as T, isDemo: false };
 }
 
 // 1. List applications

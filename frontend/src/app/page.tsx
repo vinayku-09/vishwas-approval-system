@@ -16,15 +16,25 @@ import {
   Scale,
   Award,
 } from 'lucide-react';
-import { getApplications, getStoredUser, setStoredRole } from '../lib/api';
+import {
+  getApplications,
+  getStoredUser,
+  isAuthenticated,
+  setStoredRole,
+} from '../lib/api';
 
 export default function HomePage() {
-  const [appCount, setAppCount] = useState(4);
+  const [appCount, setAppCount] = useState(0);
 
   useEffect(() => {
-    getApplications().then((res) => {
-      if (res.data) setAppCount(res.data.length);
-    });
+    if (!isAuthenticated()) return;
+    getApplications()
+      .then((res) => {
+        if (res.data) setAppCount(res.data.length);
+      })
+      .catch(() => {
+        setAppCount(0);
+      });
   }, []);
 
   const handleRoleCardClick = (role: 'institution' | 'officer' | 'committee') => {
