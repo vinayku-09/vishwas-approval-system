@@ -6,6 +6,7 @@ import {
   ApplicationType,
   ComplianceDocument,
   EvcReport,
+  ReturnRecord,
   SignoffDecision,
   SignoffRecord,
   Status,
@@ -16,8 +17,16 @@ import { evaluateRules } from '../services/rules.js';
 import { validateTransition } from '../services/workflow.js';
 import { extractApplicationDocuments } from '../services/extractor.js';
 import { computeExpiryState } from '../services/expiry.js';
-import { canonicalJson } from '../services/ledger.js';
+import { canonicalJson, verifyLedgerChain } from '../services/ledger.js';
 import { scheduleSingleEvc } from '../services/scheduler.js';
+import {
+  decorateApplication,
+  getAutoNextStatus,
+  getRouteDefinition,
+  getRouteState,
+} from '../services/routing.js';
+import { createDecisionNotice, createReturnNotice, issueNotice } from '../services/notices.js';
+import { RETURN_CATEGORY_IDS, SAFEGUARD_NOTICE } from '../config/routes.js';
 
 export const applicationsRouter = new Hono();
 
@@ -58,6 +67,26 @@ const scrutinySchema = z.object({
 });
 
 const advanceSchema = z.object({
+  to: z
+    .enum([
+      'SUBMITTED',
+      'SCRUTINY',
+      'DEFICIENT',
+      'EVC_REQUIRED',
+      'EVC_DONE',
+      'DECISION',
+      'APPROVED',
+      'REJECTED',
+      'APPEAL_SHC',
+      'APPEAL_SAC',
+    ] as const)
+    .optional(),
+  remarks: z.string().optional(),
+  override: z.boolean().optional(),
+  overrideRemarks: z.string().optional(),
+});
+
+const returnSchema = z.object({
   to: z.enum([
     'SUBMITTED',
     'SCRUTINY',
@@ -65,14 +94,9 @@ const advanceSchema = z.object({
     'EVC_REQUIRED',
     'EVC_DONE',
     'DECISION',
-    'APPROVED',
-    'REJECTED',
-    'APPEAL_SHC',
-    'APPEAL_SAC',
   ] as const),
-  remarks: z.string().optional(),
-  override: z.boolean().optional(),
-  overrideRemarks: z.string().optional(),
+  category: z.enum(RETURN_CATEGORY_IDS),
+  reason: z.string().trim().min(10, 'A recorded return reason of at least 10 characters is required'),
 });
 
 const signoffSchema = z.object({
@@ -88,7 +112,11 @@ applicationsRouter.get('/', async (c) => {
   const type = c.req.query('type') as ApplicationType | undefined;
 
   const applications = await store.listApplications({ status, type });
-  return c.json(applications.filter((application) => canReadApplication(user, application)));
+  return c.json(
+    applications
+      .filter((application) => canReadApplication(user, application))
+      .map((application) => decorateApplication(application))
+  );
 });
 
 // POST /applications - create new application
@@ -115,7 +143,7 @@ applicationsRouter.post('/', async (c) => {
     actor: role,
   });
 
-  return c.json(application, 201);
+  return c.json(decorateApplication(application), 201);
 });
 
 // GET /applications/:id - get details
@@ -132,7 +160,81 @@ applicationsRouter.get('/:id', async (c) => {
     return c.json({ error: 'Forbidden: Application is outside your scope' }, 403);
   }
 
-  return c.json(application);
+  return c.json(decorateApplication(application));
+});
+
+// GET /applications/:id/route - configured route, stage and return options
+applicationsRouter.get('/:id/route', async (c) => {
+  const user = c.get('user');
+  const id = c.req.param('id');
+  const application = await store.getApplication(id);
+  if (!application) {
+    return c.json({ error: `Application '${id}' not found` }, 404);
+  }
+  if (!canReadApplication(user, application)) {
+    return c.json({ error: 'Forbidden: Application is outside your scope' }, 403);
+  }
+
+  return c.json(getRouteState(application));
+});
+
+// GET /applications/:id/case-summary - read-only electronic case summary
+applicationsRouter.get('/:id/case-summary', async (c) => {
+  const user = c.get('user');
+  const id = c.req.param('id');
+  const application = await store.getApplication(id);
+  if (!application) {
+    return c.json({ error: `Application '${id}' not found` }, 404);
+  }
+  if (!canReadApplication(user, application)) {
+    return c.json({ error: 'Forbidden: Application is outside your scope' }, 403);
+  }
+
+  const [documents, complianceDocuments, allInspections, allNotifications, ledger, signoff] =
+    await Promise.all([
+      store.getDocuments(id),
+      store.getComplianceDocuments(id),
+      store.getInspections(),
+      store.listNotifications(),
+      store.getLedger(id),
+      store.getSignoff(id),
+    ]);
+
+  const verification = verifyLedgerChain(ledger);
+  const route = getRouteState(application);
+
+  return c.json({
+    generatedAt: new Date().toISOString(),
+    readOnly: true,
+    safeguardNotice: SAFEGUARD_NOTICE,
+    application,
+    route,
+    timeline: ledger.map((entry) => {
+      const payload = entry.payload as Record<string, unknown>;
+      const status = (payload.newStatus ?? payload.status ?? payload.initialStatus) as
+        | Status
+        | undefined;
+      return {
+        id: entry.id,
+        at: entry.timestamp,
+        eventType: entry.eventType,
+        actor: entry.actor,
+        status,
+      };
+    }),
+    returns: application.returns ?? [],
+    signoff: application.signoff ?? signoff ?? undefined,
+    documents,
+    complianceDocuments,
+    inspections: allInspections.filter((inspection) => inspection.applicationId === id),
+    notices: allNotifications.filter((notification) => notification.applicationId === id),
+    ledger: {
+      totalEntries: ledger.length,
+      valid: verification.valid,
+      brokenAt: verification.brokenAt,
+      message: verification.message,
+    },
+  });
 });
 
 // POST /applications/:id/extract - AI Extraction + Rule Evaluation (Officer role)
@@ -230,7 +332,7 @@ applicationsRouter.post('/:id/extract', async (c) => {
   });
 
   return c.json({
-    application: updated,
+    application: decorateApplication(updated!),
     extraction: extractionResult,
     deficiencies,
     results,
@@ -293,7 +395,7 @@ applicationsRouter.post('/:id/signoff', async (c) => {
   return c.json({
     success: true,
     signoff: signoffRecord,
-    application: updated,
+    application: decorateApplication(updated!),
   });
 });
 
@@ -320,7 +422,16 @@ applicationsRouter.post('/:id/advance', async (c) => {
     return c.json({ error: parsed.error.errors.map((e) => e.message).join(', ') }, 400);
   }
 
-  const targetStatus = parsed.data.to;
+  const targetStatus = parsed.data.to ?? getAutoNextStatus(application);
+  if (!targetStatus) {
+    return c.json(
+      {
+        error:
+          'No automatic next stage is available. Select an explicit target; decisions and EVC reports require human action.',
+      },
+      400
+    );
+  }
 
   // Rule 1: Check if application is locked due to expired document
   if (application.locked) {
@@ -366,15 +477,106 @@ applicationsRouter.post('/:id/advance', async (c) => {
   const updated = await store.updateApplication(id, {
     status: targetStatus,
   });
+  if (!updated) {
+    return c.json({ error: `Application '${id}' not found` }, 404);
+  }
+
+  const route = getRouteDefinition(application);
 
   // Record ledger entry
   await store.recordLedger(id, 'WORKFLOW_STATE_ADVANCED', role, {
     previousStatus: application.status,
     newStatus: targetStatus,
+    routeId: route.id,
+    automatic: parsed.data.to === undefined,
     remarks: parsed.data.remarks || `Status transitioned from ${application.status} to ${targetStatus}`,
   });
 
-  return c.json(updated);
+  // Standard decision notice for a final outcome.
+  if (targetStatus === 'APPROVED' || targetStatus === 'REJECTED') {
+    await issueNotice(
+      updated,
+      createDecisionNotice(updated, targetStatus, parsed.data.remarks),
+      role
+    );
+  }
+
+  return c.json(decorateApplication(updated));
+});
+
+// POST /applications/:id/return - return/revert with category and reason
+applicationsRouter.post('/:id/return', async (c) => {
+  const role = resolveActorRole(c, 'institution');
+  if (role !== 'officer' && role !== 'chief') {
+    return c.json({ error: 'Forbidden: Return/revert requires officer or CHIEF role' }, 403);
+  }
+
+  const user = c.get('user');
+  const id = c.req.param('id');
+  const application = await store.getApplication(id);
+  if (!application) {
+    return c.json({ error: `Application '${id}' not found` }, 404);
+  }
+  if (!canReadApplication(user, application)) {
+    return c.json({ error: 'Forbidden: Application is outside your scope' }, 403);
+  }
+
+  const body = await c.req.json().catch(() => null);
+  const parsed = returnSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.errors.map((e) => e.message).join(', ') }, 400);
+  }
+
+  const targetStatus = parsed.data.to;
+  const allowedTargets = getRouteState(application).returnTargets;
+  if (!allowedTargets.includes(targetStatus)) {
+    return c.json(
+      {
+        error: `Invalid return from '${application.status}' to '${targetStatus}'. Allowed targets: [${
+          allowedTargets.join(', ') || 'None'
+        }]`,
+      },
+      400
+    );
+  }
+
+  const record: ReturnRecord = {
+    id: `RETURN-${id}-${Date.now()}`,
+    applicationId: id,
+    fromStatus: application.status,
+    toStatus: targetStatus,
+    category: parsed.data.category,
+    reason: parsed.data.reason,
+    actor: role,
+    timestamp: new Date().toISOString(),
+  };
+
+  const updated = await store.updateApplication(id, {
+    status: targetStatus,
+    lastReturn: record,
+    returns: [...(application.returns ?? []), record],
+  });
+  if (!updated) {
+    return c.json({ error: `Application '${id}' not found` }, 404);
+  }
+
+  await store.recordLedger(id, 'APPLICATION_RETURNED', role, {
+    returnId: record.id,
+    previousStatus: record.fromStatus,
+    newStatus: record.toStatus,
+    category: record.category,
+    reason: record.reason,
+    routeId: getRouteDefinition(application).id,
+  });
+
+  const notice = await issueNotice(updated, createReturnNotice(updated, record), role);
+
+  return c.json({
+    application: decorateApplication(updated),
+    return: record,
+    notice,
+    message: 'Return recorded with reason and category; standard notice issued to the institution.',
+  });
 });
 
 // GET /applications/:id/compliance - list compliance documents with expiry states
@@ -446,7 +648,7 @@ applicationsRouter.post('/:id/scrutiny', async (c) => {
   });
 
   return c.json({
-    application: updated,
+    application: decorateApplication(updated!),
     deficiencies,
     results,
     allPassed,
@@ -507,7 +709,7 @@ applicationsRouter.post('/:id/schedule-evc', async (c) => {
   });
 
   return c.json({
-    application: updatedApp,
+    application: decorateApplication(updatedApp!),
     assignment: scheduleRes.assignment,
     message: 'Inspection team successfully scheduled and recorded in audit ledger',
   }, 201);
@@ -588,7 +790,7 @@ applicationsRouter.post('/:id/evc-report', async (c) => {
   });
 
   return c.json({
-    application: updatedApp,
+    application: decorateApplication(updatedApp!),
     report,
     message: 'EVC inspection report submitted and hashed to tamper-evident ledger',
   }, 201);

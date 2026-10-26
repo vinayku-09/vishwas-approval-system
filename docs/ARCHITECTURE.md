@@ -30,19 +30,19 @@ All timelines, reminder tiers and escalation delays in the current build are pla
 
 ### Frontend
 
-- `frontend/src/app/` - Next.js App Router pages: home, login, institution, officer, committee, alerts, public ledger verification.
+- `frontend/src/app/` - Next.js App Router pages: home, login, institution, officer, committee, alerts, public ledger verification and read-only case summary (`case/[id]`).
 - `frontend/src/lib/api.ts` - API client, JWT/session handling, demo fallback and demo-account metadata.
 - `frontend/src/lib/mock.ts` - clearly labelled local demo data used when the API is unavailable.
-- `frontend/src/components/` - navigation, demo badge, notification bell and shared UI.
+- `frontend/src/components/` - navigation, demo badge, notification bell, shared UI and `SafeguardNotice`.
 
 ### Backend
 
 - `backend/src/app.ts` - Hono app, CORS, health and route mounting.
 - `backend/src/routes/` - auth, applications, documents, scheduling, cron, notifications, escalations and ledger endpoints.
 - `backend/src/middleware/auth.ts` - JWT validation, role claims and optional legacy demo-header fallback.
-- `backend/src/services/` - workflow, rules, extraction, storage, scheduler, alerts, mailer, expiry and ledger logic.
+- `backend/src/services/` - workflow, routing, notices, rules, extraction, storage, scheduler, alerts, mailer, expiry and ledger logic.
 - `backend/src/db/` - Drizzle schema, in-memory repository, Postgres repository, migration seed and store selection.
-- `backend/src/config/` - central timeline, alert and escalation constants.
+- `backend/src/config/` - central timeline, alert, escalation and route constants.
 - `backend/drizzle/` - generated SQL migrations.
 
 ### Optimizer
@@ -57,7 +57,7 @@ The Postgres schema contains 12 application tables plus Drizzle migration metada
 
 | Table | Purpose |
 | :--- | :--- |
-| `applications` | Application identity, workflow status, region, type, SLA dates, route fields when added in Part 2 |
+| `applications` | Application identity, workflow status, region, type, SLA dates and JSONB route/return fields |
 | `users` | Seeded and future accounts, role, region, institution and password hash |
 | `documents` | Uploaded file metadata and SHA-256 hashes |
 | `compliance_documents` | Expiry tracking, warning tiers and locked-application inputs |
@@ -70,7 +70,7 @@ The Postgres schema contains 12 application tables plus Drizzle migration metada
 | `alert_logs` | Reminder and escalation dispatch log with mail status |
 | `escalations` | Escalation lifecycle (`OPEN`, `ACKNOWLEDGED`, `RESOLVED`) |
 
-Application, user and alert records use typed JSON payloads for the current prototype. The data model will evolve in Parts 2, 3 and 4 for routes, stage SLAs, undertakings and renewals.
+Application, user and alert records use typed JSON payloads for the current prototype. Route metadata is resolved from application type at response time and is not persisted. Return records (`returns`, `lastReturn`) live in the existing application JSONB payload, so Part 2 did not add a table or migration. The data model will evolve in Parts 3 and 4 for stage SLAs, undertakings and renewals.
 
 ## 4. Configuration Locations
 
@@ -81,7 +81,7 @@ Application, user and alert records use typed JSON payloads for the current prot
 | Scrutiny rule thresholds | `backend/src/config/timelines.ts` | Placeholder pending APH |
 | EVC inspection duration, hours, travel speed, winding factor | `backend/src/config/timelines.ts` | Prototype assumption |
 | Reminder offsets and escalation matrix | `backend/src/config/alerts.ts` | Placeholder pending APH |
-| Route definitions and application-type mapping | Planned for Part 2 | Not built |
+| Route definitions, application-type mapping, return targets and categories | `backend/src/config/routes.ts` | Placeholder pending APH |
 | Stage-level SLA and ageing buckets | Planned for Part 3 | Not built |
 | Renewal validity periods | Planned for Part 4 | Not built |
 
@@ -102,7 +102,15 @@ Every value above is a product placeholder, not an official AICTE rule. See `doc
 
 The current workflow enforces valid transitions through a deterministic state machine. Rejection requires a recorded officer `CONFIRM` sign-off. Overrides require remarks. Automated checks never perform a final rejection on their own.
 
-Part 2 will add configurable routes, automatic stage progression, return/revert actions with reason and category, and a read-only electronic case summary.
+Part 2 adds route metadata derived from application type:
+
+- `NEW_APPROVAL`, `EXTENSION_OF_APPROVAL` and `INTAKE_CHANGE` share the stage sequence `SUBMITTED → SCRUTINY → EVC_REQUIRED → EVC_DONE → DECISION`; only `NEW_APPROVAL` requires EVC by default.
+- `APPEAL` uses `APPEAL_SHC → APPEAL_SAC`.
+- `POST /applications/:id/advance` may omit `to`. The configured automatic next stage is used for `SUBMITTED`, `DEFICIENT`, `SCRUTINY` and `EVC_DONE`. `EVC_REQUIRED`, `DECISION` and appeal stages always require a human-selected target.
+- `POST /applications/:id/return` allows only configured earlier targets, requires a category and a recorded reason of at least 10 characters, and is limited to in-scope `OFFICER`/`CHIEF` users.
+- Returns and decisions create standard notices. Notices create in-app notifications and `NOTICE_ISSUED` ledger entries; returns also create `APPLICATION_RETURNED`.
+- `GET /applications/:id/case-summary` is scoped and read-only. It assembles route, timeline, returns, sign-off, documents, compliance, inspections, notices and ledger verification without mutating state.
+- All route and stage settings are placeholders pending the APH.
 
 ## 7. Alert Flow
 
@@ -133,11 +141,11 @@ The ledger endpoint recomputes the chain and reports the first broken block if t
 
 ## 9. Current Gaps
 
-- Part 2 routing, return/revert, notices and case summary are not built.
+- Route mapping, stage order, automatic progression, return targets and notice wording are placeholders pending APH policy approval.
 - Part 3 dashboards and stage SLA configuration are not built.
 - Part 4 undertakings and renewals are not built.
 - Part 6 reports, audit search and expanded demo data are not built.
 - Live SMTP was not verified.
 - Python OR-Tools was not run or deployed.
 - Role/region scoping for all read endpoints needs a security pass before deployment.
-- The universal decision-screen safeguard notice is not yet applied everywhere.
+- New decision screens must reuse `SafeguardNotice`; this is a code-review rule, not an automated test.

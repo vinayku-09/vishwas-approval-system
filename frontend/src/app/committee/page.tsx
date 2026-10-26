@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Application, EvcReportFindings, InspectionAssignment } from '../../lib/types';
 import { getApplications, getInspections, submitEvcReport } from '../../lib/api';
+import { SafeguardNotice } from '../../components/SafeguardNotice';
 import { INITIAL_MOCK_INSPECTORS } from '../../lib/mock';
 import { StatusBadge } from '../../components/StatusBadge';
 import { formatDate } from '../../lib/utils';
@@ -426,6 +427,8 @@ export default function CommitteePage() {
                   </label>
                 </div>
               </div>
+
+              <SafeguardNotice compact />
 
               <div className="pt-4 border-t border-slate-200 flex items-center justify-end gap-3">
                 <button

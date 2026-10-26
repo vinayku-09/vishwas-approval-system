@@ -3,6 +3,7 @@ import {
   ApplicationType,
   AlertEventType,
   AuthUser,
+  CaseSummary,
   ComplianceDocument,
   Deficiency,
   DocumentMetadata,
@@ -21,9 +22,12 @@ import {
   LoginResponse,
   Notification,
   OptimizationResult,
+  ReturnCategory,
+  ReturnRecord,
   Role,
   SignoffDecision,
   SignoffRecord,
+  StandardNotice,
   Status,
   UserRole,
   VerificationResult,
@@ -596,7 +600,7 @@ export async function recordSignoff(
 // 8. Advance workflow state
 export async function advanceApplication(
   id: string,
-  to: Status,
+  to?: Status,
   remarks?: string,
   overrideRemarks?: string
 ): Promise<{ data: Application; isDemo: boolean }> {
@@ -617,14 +621,107 @@ export async function advanceApplication(
     throw new Error('Application is locked due to expired compliance document(s). Officer override with remarks required.');
   }
 
-  if (to === 'REJECTED' && app.signoff?.decision !== 'CONFIRM') {
+  const autoTarget: Status | null =
+    app.status === 'SUBMITTED' || app.status === 'DEFICIENT'
+      ? 'SCRUTINY'
+      : app.status === 'SCRUTINY'
+      ? app.deficiencies.length > 0
+        ? 'DEFICIENT'
+        : app.type === 'NEW'
+        ? 'EVC_REQUIRED'
+        : 'DECISION'
+      : app.status === 'EVC_DONE'
+      ? 'DECISION'
+      : null;
+  const target = to ?? autoTarget;
+
+  if (!target) {
+    throw new Error('No automatic next stage is available. Select an explicit target.');
+  }
+
+  if (target === 'REJECTED' && app.signoff?.decision !== 'CONFIRM') {
     throw new Error('Officer sign-off required before advancing to REJECTED.');
   }
 
-  const updatedApp: Application = { ...app, status: to };
+  const updatedApp: Application = { ...app, status: target };
   localApplications[appIndex] = updatedApp;
 
   return { data: updatedApp, isDemo: true };
+}
+
+// 8b. Return/revert an application with a category and recorded reason
+export async function returnApplication(
+  id: string,
+  data: { to: Status; category: ReturnCategory; reason: string }
+): Promise<{
+  data: { application: Application; return: ReturnRecord; notice: StandardNotice };
+  isDemo: boolean;
+}> {
+  const res = await request<{
+    application: Application;
+    return: ReturnRecord;
+    notice: StandardNotice;
+  }>(`/applications/${id}/return`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+
+  const appIndex = localApplications.findIndex((a) => a.id === id);
+  if (appIndex === -1) throw new Error('Application not found');
+  const app = localApplications[appIndex];
+
+  const record: ReturnRecord = {
+    id: `RETURN-${id}-${Date.now()}`,
+    applicationId: id,
+    fromStatus: app.status,
+    toStatus: data.to,
+    category: data.category,
+    reason: data.reason,
+    actor: getStoredRole(),
+    timestamp: new Date().toISOString(),
+  };
+  const updatedApp: Application = {
+    ...app,
+    status: data.to,
+    lastReturn: record,
+    returns: [...(app.returns ?? []), record],
+  };
+  localApplications[appIndex] = updatedApp;
+
+  return {
+    data: {
+      application: updatedApp,
+      return: record,
+      notice: {
+        id: `NOTICE-${id}`,
+        applicationId: id,
+        noticeType: 'RETURN',
+        reference: `AICTE/VISHWAS/RETURN/${id}`,
+        subject: `Application ${id} returned to ${data.to}`,
+        body: `Returned from ${record.fromStatus} to ${record.toStatus}. Category: ${data.category}. Reason: ${data.reason}`,
+        issuedAt: record.timestamp,
+        issuedBy: record.actor,
+        issuedTo: app.institutionName,
+        category: data.category,
+      },
+    },
+    isDemo: true,
+  };
+}
+
+// 8c. Read-only electronic case summary
+export async function getCaseSummary(
+  applicationId: string
+): Promise<{ data: CaseSummary | null; isDemo: boolean }> {
+  const res = await request<CaseSummary>(`/applications/${applicationId}/case-summary`);
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+  return { data: null, isDemo: true };
 }
 
 // 9. Get compliance documents & lock status

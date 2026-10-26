@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-10-26 - Part 2: routes, returns, notices and case summary
+
+### Added
+
+- Placeholder approval-route configuration for new approval, extension, intake change and appeal in `backend/src/config/routes.ts`, with application-type mapping, stage order, return targets and return categories.
+- Routing service for current stage, configured automatic next stage, return options and response decoration with route metadata. Route metadata is derived, not persisted.
+- Automatic progression for `SUBMITTED`, `DEFICIENT`, `SCRUTINY` and `EVC_DONE` when `to` is omitted; human action remains mandatory from `EVC_REQUIRED`, `DECISION` and appeal stages.
+- `POST /applications/:id/return` with officer/CHIEF role, region scope, configured target validation, category, recorded reason, `APPLICATION_RETURNED` ledger entry and institution notice.
+- Standard return and decision notices with in-app notifications and `NOTICE_ISSUED` ledger entries.
+- `GET /applications/:id/route` and scoped read-only `GET /applications/:id/case-summary` with route, timeline, returns, sign-off, documents, compliance, inspections, notices and ledger verification.
+- Officer return modal, configured target display, optional automatic-next action, and read-only `/case/[id]` summary page linked from officer and institution views.
+- Reusable `SafeguardNotice` on officer advance/review, committee EVC report and case-summary screens.
+- Part 2 routing tests covering route mapping, auto progression, return validation/scoping, notices, ledger writes and case-summary access. Backend suite is **120/120** across 10 files.
+
+### Changed
+
+- Application responses now include `route`, `returns` and `lastReturn`.
+- Officer advance uses route-configured next statuses and can omit an explicit target for configured automatic transitions.
+- README, architecture, assumptions and compliance table document the new routes and remaining APH placeholders.
+
+### Verified
+
+- Backend typecheck (`npm run build`) passed.
+- Backend tests passed: **120/120** in 10 files.
+- Frontend production build passed (9/9 pages generated), including dynamic `/case/[id]`.
+- No schema migration was needed; return records use the existing application JSONB payload.
+
 ## 2026-10-26 - Part 2a: scoped reads and honest API errors
 
 ### Changed

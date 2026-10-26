@@ -313,6 +313,11 @@ export default function InstitutionPage() {
                         AI Extracted ({app.extractedDetails.source})
                       </span>
                     )}
+                    {app.route && (
+                      <span className="text-[11px] text-slate-400">
+                        {app.route.name} · stage {app.route.currentStage}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -330,6 +335,13 @@ export default function InstitutionPage() {
                       <span>Manage</span>
                       <ChevronRight className="w-4 h-4" />
                     </button>
+                    <Link
+                      href={`/case/${app.id}`}
+                      className="p-2 rounded-lg border border-slate-200 hover:bg-blue-50 text-gov-blue-800 transition-colors"
+                      title="Read-only electronic case summary"
+                    >
+                      <FileText className="w-4 h-4" />
+                    </Link>
                     <Link
                       href={`/verify/${app.id}`}
                       className="p-2 rounded-lg border border-slate-200 hover:bg-emerald-50 text-emerald-700 transition-colors"

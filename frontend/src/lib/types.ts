@@ -270,6 +270,49 @@ export interface OptimizationResult {
   assignments: InspectionAssignment[];
 }
 
+export type ApprovalRouteId =
+  | 'NEW_APPROVAL'
+  | 'EXTENSION_OF_APPROVAL'
+  | 'INTAKE_CHANGE'
+  | 'APPEAL';
+
+export type ReturnCategory =
+  | 'DEFICIENCY'
+  | 'DOCUMENT_MISSING'
+  | 'CLARIFICATION'
+  | 'COMPLIANCE'
+  | 'OTHER';
+
+export interface ReturnRecord {
+  id: string;
+  applicationId: string;
+  fromStatus: Status;
+  toStatus: Status;
+  category: ReturnCategory;
+  reason: string;
+  actor: string;
+  timestamp: string;
+}
+
+export interface ReturnCategoryOption {
+  id: ReturnCategory;
+  label: string;
+  description: string;
+}
+
+export interface RouteState {
+  id: ApprovalRouteId;
+  name: string;
+  description: string;
+  stages: Status[];
+  currentStage: Status;
+  currentIndex: number;
+  nextStatuses: Status[];
+  autoNextStatus?: Status;
+  returnTargets: Status[];
+  returnCategories: ReturnCategoryOption[];
+}
+
 export interface Application {
   id: string;
   institutionName: string;
@@ -288,6 +331,51 @@ export interface Application {
   region?: Region;
   undertakingDueAt?: string;
   scheduledInspection?: InspectionAssignment;
+  route?: RouteState;
+  returns?: ReturnRecord[];
+  lastReturn?: ReturnRecord;
+}
+
+export interface StandardNotice {
+  id: string;
+  applicationId: string;
+  noticeType: 'RETURN' | 'DECISION' | 'ROUTE_ASSIGNMENT';
+  reference: string;
+  subject: string;
+  body: string;
+  issuedAt: string;
+  issuedBy: string;
+  issuedTo: string;
+  category?: ReturnCategory;
+}
+
+export interface CaseSummaryTimelineItem {
+  id: string;
+  at: string;
+  eventType: string;
+  actor: string;
+  status?: Status;
+}
+
+export interface CaseSummary {
+  generatedAt: string;
+  readOnly: true;
+  safeguardNotice: string;
+  application: Application;
+  route: RouteState;
+  timeline: CaseSummaryTimelineItem[];
+  returns: ReturnRecord[];
+  signoff?: SignoffRecord;
+  documents: DocumentMetadata[];
+  complianceDocuments: ComplianceDocument[];
+  inspections: InspectionAssignment[];
+  notices: Notification[];
+  ledger: {
+    totalEntries: number;
+    valid: boolean;
+    brokenAt?: string | null;
+    message: string;
+  };
 }
 
 export interface LedgerEntry {

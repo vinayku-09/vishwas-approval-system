@@ -11,8 +11,8 @@ Last verified locally on **2026-10-26**. No deployment has been performed.
 | Check | Result |
 | :--- | :--- |
 | Backend typecheck | Passed (`npm run build`) |
-| Backend tests | **107 passed / 107** in 9 test files |
-| Frontend production build | Passed (`next build`, 9/9 static pages) |
+| Backend tests | **120 passed / 120** in 10 test files |
+| Frontend production build | Passed (`next build`, 9/9 pages generated) |
 | Neon migration | Applied; 12 public tables plus `drizzle.__drizzle_migrations` |
 | Active backend store | Postgres / Neon |
 | Seeded login and `/auth/me` | Passed |
@@ -24,6 +24,10 @@ Last verified locally on **2026-10-26**. No deployment has been performed.
 - JWT login, bcrypt password verification, 8-hour signed sessions and role-aware claims.
 - Legacy demo-header fallback is disabled by default with `ALLOW_DEMO_HEADER_ROLE=false`.
 - Role/region scoping for applications, documents, inspections, ledger views, notifications and escalations, with authenticated boundary tests.
+- Configurable approval routes for new approval, extension, intake change and appeal, with stage order, automatic progression, guarded return/revert targets and categories.
+- Standard return and decision notices issued to institutions with in-app notifications and `NOTICE_ISSUED` ledger entries.
+- Read-only electronic case summary at `/case/[id]` with route, timeline, returns, sign-off, documents, inspections, notices and ledger verification.
+- Universal human-decision safeguard notice on officer advance/review, committee EVC report and case-summary screens.
 - Strict workflow state machine, human sign-off gate for rejection, and cryptographic ledger writes.
 - Neon Postgres persistence with Drizzle migrations and a deterministic demo seed.
 - Multipart PDF/PNG/JPG document upload with SHA-256 hashing and local or Vercel Blob storage.
@@ -38,19 +42,19 @@ Last verified locally on **2026-10-26**. No deployment has been performed.
 - AI document extraction is a deterministic mock unless `AI_GATEWAY_API_KEY` is configured. No live model extraction was run in Step 0.
 - The Python OR-Tools optimizer exists in `optimizer/api/optimize.py` but was not run or deployed; the tested path is the TypeScript fallback.
 - The 21-day SLA windows, 80% warning threshold, 90/60/30-day expiry tiers, 30/15/7/1 reminder offsets and escalation delays are placeholders pending the APH.
+- Approval routes, stage order, automatic-next-stage rules, return targets and return categories are placeholders pending the APH. There are no official AICTE route mappings in this prototype.
 - The demo dataset is simulated and intentionally contains no real personal data.
 - Email delivery was verified with Ethereal; Gmail/live SMTP was rejected as configured and remains unverified.
 - EVC inspection durations, working hours, travel speed and distance factors are prototype assumptions.
 
 ### Not built yet / roadmap
 
-- **Part 2:** configurable route assignment, automatic stage progression, return/revert with reason and category, standard notices, electronic case summary.
 - **Part 3:** stage SLA config, pendency dashboards, ageing buckets, workload and bottleneck views, EVC status board.
 - **Part 4:** undertakings, evidence verification, renewals and unlock-after-renewal.
 - **Part 6:** six reports with CSV export, searchable audit view and expanded demo seed.
 - Authenticity checks, RAG, fraud map and QR certificates remain out of scope until Parts 2, 3, 4 and 6 are complete.
 - Part 2a closes the application, document, inspection and ledger read-scoping gaps. Re-review all new read endpoints before deployment.
-- The universal decision-screen safeguard notice is not yet applied to every decision screen.
+- The new route metadata is derived at response time; only returns are stored in the application JSONB payload. Policy approval of the route map is still required.
 
 ## Step 0 Verification
 
@@ -75,6 +79,23 @@ Last verified locally on **2026-10-26**. No deployment has been performed.
 - The same alert produced `EVC_SCHEDULING:APP-2024-005:ESCALATION:1` in `alert_logs`, notification `NOTIF-EVC_SCHEDULING:APP-2024-005:ESCALATION:1`, and ledger entry `LEDGER-APP-2024-005-4` (`ALERT_ESCALATION`, actor `system:alert-engine`).
 - Ledger verification for `APP-2024-005` returned `valid: true` with the hash chain intact.
 - Second cron run: 0 reminders, 0 escalations, 0 notifications, 0 emails, **37 duplicates skipped**. Counts stayed at 37 alert logs, 39 notifications, 67 ledger entries and 16 escalations.
+
+## Part 2: Routes, Returns and Case Summary
+
+Approval routes are resolved from application type at response time using `backend/src/config/routes.ts`. Route metadata is not persisted, so no migration is required; return records are appended to the application JSONB payload.
+
+| Route | Application type | Stages | EVC required | Return categories |
+| :--- | :--- | :--- | :--- | :--- |
+| `NEW_APPROVAL` | `NEW` | SUBMITTED → SCRUTINY → EVC_REQUIRED → EVC_DONE → DECISION | Yes | Deficiency, document missing, clarification, compliance, other |
+| `EXTENSION_OF_APPROVAL` | `EXTENSION_OF_APPROVAL` | SUBMITTED → SCRUTINY → EVC_REQUIRED → EVC_DONE → DECISION | No by default | Same |
+| `INTAKE_CHANGE` | `INTAKE_CHANGE` | SUBMITTED → SCRUTINY → EVC_REQUIRED → EVC_DONE → DECISION | No by default | Same |
+| `APPEAL` | Appeal statuses | APPEAL_SHC → APPEAL_SAC | No | Not enabled |
+
+- `POST /applications/:id/advance` can omit `to`; the configured automatic next stage is used only for `SUBMITTED`, `DEFICIENT`, `SCRUTINY` and `EVC_DONE`. `EVC_REQUIRED`, `DECISION` and appeal stages always need a human-selected target.
+- `POST /applications/:id/return` requires `OFFICER` or `CHIEF`, an in-scope application, a configured return target, a category and a reason of at least 10 characters. It writes `APPLICATION_RETURNED` and `NOTICE_ISSUED` ledger entries and notifies the institution.
+- Terminal decisions issue a standard decision notice. All decision screens show a human-decision safeguard notice.
+- `GET /applications/:id/case-summary` returns a scoped, read-only electronic case summary. It does not mutate state.
+- All routes, stage rules, return targets and notice text are placeholders pending the APH.
 
 ## Demo Users
 
@@ -112,6 +133,8 @@ Local URLs:
 - Backend health: `http://localhost:4000/health`
 - Alerts cron: `POST http://localhost:4000/cron/alerts`
 - Ledger verification: `GET http://localhost:4000/ledger/APP-2024-001/verify`
+- Case summary: `GET http://localhost:4000/applications/APP-2024-001/case-summary` (bearer token)
+- Return/revert: `POST http://localhost:4000/applications/APP-2024-005/return` (officer/CHIEF bearer token)
 
 ### Postgres / Neon
 
@@ -159,20 +182,20 @@ Notes:
 
 ## Safeguard
 
-Automated actions support the approval process and do not replace decisions of the competent authority. The current build enforces a human sign-off gate before rejection and records overrides with remarks in the ledger. The broader decision-screen notice and return/revert safeguards are scheduled for Part 2.
+Automated actions support the approval process and do not replace decisions of the competent authority. The current build enforces a human sign-off gate before rejection, requires a recorded reason and category for every return, records overrides with remarks in the ledger, and shows a human-decision safeguard notice on officer advance/review, committee EVC report and case-summary screens. Route and stage settings remain placeholders pending the APH.
 
 ## PS Compliance
 
 | Area | Key requirement | Status | Notes |
 | :--- | :--- | :--- | :--- |
-| A | Routing and return/revert | Not built | Part 2 will add route config, route assignment, stage progression, return reasons/categories and notices. |
+| A | Routing and return/revert | Built with placeholders | Configurable routes, automatic progression, guarded return targets/categories, standard notices and read-only case summary exist. Route policy approval is pending the APH. |
 | B | Pendency dashboards | Partial foundation | SLA fields, expiry alerts and escalation engine exist; stage SLA config, dashboards, ageing buckets and bottleneck views are Part 3. |
-| C | Visibility and EVC status | Partial | EVC scheduling and scoped notifications exist; EVC status board and delayed-case visibility are Part 3. |
+| C | Visibility and EVC status | Partial | EVC scheduling, scoped notifications and case summary exist; EVC status board and delayed-case visibility are Part 3. |
 | D | Undertakings | Not built | Part 4 will add conditions, evidence, verification and overdue escalation. |
 | E | Renewals | Not built | Part 4 will add renewal submission, verification, validity update and application unlock. |
 | F | Reports and demo data | Not built | Part 6 will add six filtered reports, CSV export, searchable audit view and a larger demo seed. |
-| Safeguard | Human authority and recorded reasons | Partial | Rejection sign-off and ledger writes exist; universal decision notice, return reasons and override safeguards are pending. |
-| Audit | Every state change and alert in ledger | Partial | State changes and alerts write ledger entries; full reads are auth and role/region scoped, and public verification returns validity metadata only. |
+| Safeguard | Human authority and recorded reasons | Built for current decision screens | Rejection sign-off, return reasons/categories, override remarks and decision notices exist. New decision screens must reuse `SafeguardNotice`. |
+| Audit | Every state change and alert in ledger | Partial | State changes, returns, notices and alerts write ledger entries; full reads are auth and role/region scoped, and public verification returns validity metadata only. |
 
 ## Documentation
 

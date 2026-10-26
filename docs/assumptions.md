@@ -26,12 +26,26 @@
 | Road winding factor | 1.3 x haversine distance | `backend/src/config/timelines.ts` (`ROAD_WINDING_FACTOR`) | C - EVC |
 | EVC team size | 2 distinct inspectors | `backend/src/services/scheduler.ts` | C - EVC |
 
+## Part 2 Route and Return Placeholders
+
+| Area | Placeholder value | Config location | PS area served |
+| :--- | :--- | :--- | :--- |
+| New approval route | `NEW_APPROVAL`; `NEW` applications; stages `SUBMITTED, SCRUTINY, EVC_REQUIRED, EVC_DONE, DECISION`; EVC required | `backend/src/config/routes.ts` (`APPROVAL_ROUTES`, `TYPE_ROUTE_MAP`) | A - routing |
+| Extension route | `EXTENSION_OF_APPROVAL`; same stage sequence; EVC not required by default | `backend/src/config/routes.ts` | A - routing |
+| Intake-change route | `INTAKE_CHANGE`; same stage sequence; EVC not required by default | `backend/src/config/routes.ts` | A - routing |
+| Appeal route | `APPEAL`; stages `APPEAL_SHC, APPEAL_SAC`; no EVC | `backend/src/config/routes.ts` | A - routing |
+| Automatic progression | `SUBMITTED→SCRUTINY`, `DEFICIENT→SCRUTINY`, `SCRUTINY→DEFICIENT` when deficiencies exist, `SCRUTINY→EVC_REQUIRED` for NEW, `EVC_DONE→DECISION`; no automatic decision | `backend/src/config/routes.ts` and `backend/src/services/routing.ts` | A - stage progression |
+| Return targets | Explicit earlier targets only: `SCRUTINY→[SUBMITTED, DEFICIENT]`, `DEFICIENT→[SCRUTINY]`, `EVC_REQUIRED→[SCRUTINY, DEFICIENT]`, `EVC_DONE→[EVC_REQUIRED, SCRUTINY, DEFICIENT]`, `DECISION→[EVC_DONE, EVC_REQUIRED, SCRUTINY, DEFICIENT]` | `backend/src/config/routes.ts` (`RETURN_TARGETS`) | A - return/revert |
+| Return categories | `DEFICIENCY`, `DOCUMENT_MISSING`, `CLARIFICATION`, `COMPLIANCE`, `OTHER` | `backend/src/config/routes.ts` (`RETURN_CATEGORIES`) | A - return/revert |
+| Notice wording and reference format | Standard return/decision notice text, `AICTE/VISHWAS/<kind>/<applicationId>/<timestamp>` references and institution notification copy | `backend/src/services/notices.ts` | A - notices |
+| Human-decision notice | Text shown on decision and case-summary screens | `backend/src/config/routes.ts` (`SAFEGUARD_NOTICE`) | A / Safeguard |
+
+Route metadata is derived at response time and not persisted. Returns are stored in the application JSONB payload; no separate table or migration is required. These values are prototype assumptions, not official AICTE route mappings.
+
 ## Not Yet Implemented
 
 | Concern | Planned location | Status |
 | :--- | :--- | :--- |
-| Four approval routes and application-type mapping | `backend/src/config/routes.ts` (planned Part 2) | Not built |
-| Stage order and automatic progression | Part 2 routing service | Not built |
 | Stage SLA days and approaching threshold | Part 3 stage-SLA config | Not built |
 | Ageing bucket boundaries (for example 0-7, 8-15, 16-30, 30+) | Part 3 dashboard config | Not built |
 | Undertaking due-date rules | Part 4 config/model | Not built |
