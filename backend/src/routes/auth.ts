@@ -74,6 +74,7 @@ authRouter.post('/login', async (c) => {
     email: user.email,
     institutionName: user.institutionName,
     inspectorId: user.inspectorId,
+    region: user.region,
   });
 
   return c.json({
@@ -85,6 +86,7 @@ authRouter.post('/login', async (c) => {
       role: user.role,
       institutionName: user.institutionName,
       inspectorId: user.inspectorId,
+      region: user.region,
     },
   });
 });

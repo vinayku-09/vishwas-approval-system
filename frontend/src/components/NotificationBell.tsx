@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-import { Bell, Check, Clock, AlertTriangle, ShieldAlert, Info } from 'lucide-react';
+import Link from 'next/link';
+import { Bell, Check, Clock, AlertTriangle, ShieldAlert, Info, ArrowRight } from 'lucide-react';
 import { Notification } from '../lib/types';
 import { getNotifications, markNotificationRead } from '../lib/api';
 import { formatDate } from '../lib/utils';
@@ -56,7 +57,7 @@ export function NotificationBell() {
         type="button"
         className="relative p-2 rounded-lg bg-gov-blue-950/80 hover:bg-white/10 text-blue-200 hover:text-white border border-white/20 transition-colors"
         aria-label="View notifications"
-        title="Compliance & Expiry Notifications"
+        title="Alerts, reminders & escalations"
       >
         <Bell className="w-4 h-4" />
         {unreadCount > 0 && (
@@ -72,7 +73,7 @@ export function NotificationBell() {
             <div className="flex items-center gap-2">
               <Bell className="w-4 h-4 text-gov-saffron" />
               <span className="font-bold text-xs uppercase tracking-wider">
-                System Alerts & Expiry
+                Alerts & Escalations
               </span>
             </div>
             <span className="text-[11px] text-blue-200">
@@ -146,6 +147,14 @@ export function NotificationBell() {
               })
             )}
           </div>
+          <Link
+            href="/alerts"
+            onClick={() => setOpen(false)}
+            className="flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-bold text-gov-blue-900 bg-slate-50 hover:bg-slate-100 border-t border-slate-200 transition-colors"
+          >
+            Open alerts & escalations
+            <ArrowRight className="w-3 h-3" />
+          </Link>
         </div>
       )}
     </div>

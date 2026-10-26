@@ -8,6 +8,8 @@ import { notificationsRouter } from './routes/notifications.js';
 import { ledgerRouter } from './routes/ledger.js';
 import { schedulingRouter } from './routes/scheduling.js';
 import { authRouter } from './routes/auth.js';
+import { escalationsRouter } from './routes/escalations.js';
+import { getMailHealth } from './services/mailer.js';
 
 export const app = new Hono();
 
@@ -18,7 +20,7 @@ app.use(
   cors({
     origin: '*',
     allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization', 'x-role', 'x-actor'],
+    allowHeaders: ['Content-Type', 'Authorization', 'x-role', 'x-actor', 'x-region'],
     exposeHeaders: ['Content-Length'],
     maxAge: 600,
   })
@@ -30,7 +32,8 @@ app.get('/health', (c) => {
     status: 'ok',
     timestamp: new Date().toISOString(),
     service: 'vishwas-approval-backend',
-    version: '1.2.0',
+    version: '1.3.0',
+    mail: getMailHealth(),
   });
 });
 
@@ -42,6 +45,7 @@ app.route('/scheduling', schedulingRouter);
 app.route('/', schedulingRouter); // Exposes GET /inspections
 app.route('/cron', cronRouter);
 app.route('/notifications', notificationsRouter);
+app.route('/escalations', escalationsRouter);
 app.route('/ledger', ledgerRouter);
 
 // Global 404 handler

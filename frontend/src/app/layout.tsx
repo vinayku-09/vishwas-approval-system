@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { Navbar } from '../components/Navbar';
+import { MailModeBanner } from '../components/MailModeBanner';
 
 export const metadata: Metadata = {
   title: 'AICTE Approval System | National Automation Portal',
@@ -17,6 +18,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="bg-slate-50 text-slate-900 flex flex-col min-h-screen">
         <Navbar />
+        <MailModeBanner />
         <main className="flex-1 w-full">{children}</main>
         <footer className="bg-gov-blue-950 text-slate-400 border-t border-slate-800 text-xs py-6 mt-12">
           <div className="max-w-7xl mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-4">

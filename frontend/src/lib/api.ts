@@ -1,14 +1,18 @@
 import {
   Application,
   ApplicationType,
+  AlertEventType,
   ComplianceDocument,
   Deficiency,
   DocumentMetadata,
   DocumentType,
+  Escalation,
+  EscalationStatus,
   EvcReport,
   EvcReportFindings,
   ExtractedFields,
   ExtractionResult,
+  HealthStatus,
   InspectionAssignment,
   Inspector,
   LedgerEntry,
@@ -29,6 +33,7 @@ import {
   INITIAL_MOCK_AFFILIATIONS,
   INITIAL_MOCK_LEDGER,
   INITIAL_MOCK_NOTIFICATIONS,
+  INITIAL_MOCK_ESCALATIONS,
 } from './mock';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
@@ -39,11 +44,12 @@ let localCompliance: Record<string, ComplianceDocument[]> = JSON.parse(JSON.stri
 let localNotifications: Notification[] = [...INITIAL_MOCK_NOTIFICATIONS];
 let localLedger: Record<string, LedgerEntry[]> = JSON.parse(JSON.stringify(INITIAL_MOCK_LEDGER));
 let localInspections: InspectionAssignment[] = JSON.parse(JSON.stringify(INITIAL_MOCK_INSPECTIONS));
+let localEscalations: Escalation[] = JSON.parse(JSON.stringify(INITIAL_MOCK_ESCALATIONS));
 
 export function getStoredRole(): Role {
   if (typeof window === 'undefined') return 'institution';
   const role = localStorage.getItem('aicte_role') as Role;
-  if (role && ['institution', 'officer', 'committee'].includes(role)) {
+  if (role && ['institution', 'officer', 'committee', 'chief'].includes(role)) {
     return role;
   }
   return 'institution';
@@ -428,6 +434,92 @@ export async function markNotificationRead(id: string): Promise<{ data: { succes
   const n = localNotifications.find((item) => item.id === id);
   if (n) n.read = true;
   return { data: { success: true }, isDemo: true };
+}
+
+// 10b. Escalations (Phase C)
+export async function getEscalations(filters?: {
+  status?: EscalationStatus;
+  eventType?: AlertEventType;
+}): Promise<{ data: Escalation[]; isDemo: boolean }> {
+  const params = new URLSearchParams();
+  if (filters?.status) params.set('status', filters.status);
+  if (filters?.eventType) params.set('eventType', filters.eventType);
+  const query = params.toString() ? `?${params.toString()}` : '';
+
+  const res = await request<{ escalations: Escalation[]; total: number }>(
+    `/escalations${query}`
+  );
+
+  if (!res.isDemo && res.data) {
+    return { data: res.data.escalations, isDemo: false };
+  }
+
+  let list = [...localEscalations];
+  if (filters?.status) list = list.filter((e) => e.status === filters.status);
+  if (filters?.eventType) list = list.filter((e) => e.eventType === filters.eventType);
+  list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return { data: list, isDemo: true };
+}
+
+export async function acknowledgeEscalation(
+  id: string
+): Promise<{ data: Escalation; isDemo: boolean; error?: string }> {
+  const res = await request<{ success: boolean; escalation: Escalation }>(
+    `/escalations/${encodeURIComponent(id)}/acknowledge`,
+    { method: 'POST' }
+  );
+
+  if (!res.isDemo && res.data) {
+    return { data: res.data.escalation, isDemo: false };
+  }
+
+  const escalation = localEscalations.find((e) => e.id === id);
+  if (!escalation) {
+    return { data: null as unknown as Escalation, isDemo: true, error: 'Escalation not found' };
+  }
+  escalation.status = 'ACKNOWLEDGED';
+  escalation.acknowledgedAt = new Date().toISOString();
+  return { data: { ...escalation }, isDemo: true };
+}
+
+export async function resolveEscalation(
+  id: string,
+  remarks: string
+): Promise<{ data: Escalation; isDemo: boolean; error?: string }> {
+  if (!remarks.trim()) {
+    return {
+      data: null as unknown as Escalation,
+      isDemo: true,
+      error: 'Remarks are required to resolve an escalation',
+    };
+  }
+
+  const res = await request<{ success: boolean; escalation: Escalation }>(
+    `/escalations/${encodeURIComponent(id)}/resolve`,
+    { method: 'POST', body: JSON.stringify({ remarks }) }
+  );
+
+  if (!res.isDemo && res.data) {
+    return { data: res.data.escalation, isDemo: false };
+  }
+
+  const escalation = localEscalations.find((e) => e.id === id);
+  if (!escalation) {
+    return { data: null as unknown as Escalation, isDemo: true, error: 'Escalation not found' };
+  }
+  escalation.status = 'RESOLVED';
+  escalation.remarks = remarks.trim();
+  escalation.resolvedAt = new Date().toISOString();
+  return { data: { ...escalation }, isDemo: true };
+}
+
+// 10c. Health / mail mode
+export async function getHealth(): Promise<{ data: HealthStatus | null; isDemo: boolean }> {
+  const res = await request<HealthStatus>('/health');
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+  return { data: null, isDemo: true };
 }
 
 // 11. Ledger inspection & verification

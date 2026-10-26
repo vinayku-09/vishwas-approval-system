@@ -92,6 +92,7 @@ export interface ComplianceDocument {
   tier?: WarningTier;
   daysRemaining: number;
   lastCheckedAt: string;
+  authenticityDueAt?: string;
 }
 
 export interface Notification {
@@ -103,6 +104,75 @@ export interface Notification {
   read: boolean;
   createdAt: string;
   idempotencyKey: string;
+  recipientRole?: UserRole;
+  region?: Region;
+  institutionName?: string;
+  eventId?: string;
+  escalationId?: string;
+}
+
+export type Region =
+  | 'NORTH'
+  | 'SOUTH'
+  | 'EAST'
+  | 'WEST'
+  | 'CENTRAL'
+  | 'NORTH_EAST'
+  | 'ALL';
+
+export type AlertEventType =
+  | 'PENDENCY'
+  | 'EVC_SCHEDULING'
+  | 'REPORT_SUBMISSION'
+  | 'UNDERTAKING'
+  | 'DOCUMENT_EXPIRY'
+  | 'DOCUMENT_AUTHENTICITY';
+
+export type EscalationStatus = 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED';
+
+export interface Escalation {
+  id: string;
+  applicationId: string;
+  eventType: AlertEventType;
+  level: number;
+  status: EscalationStatus;
+  createdAt: string;
+  remarks: string;
+  region: Region;
+  recipientRole: UserRole;
+  reason: string;
+  institutionName?: string;
+  acknowledgedAt?: string;
+  resolvedAt?: string;
+}
+
+export interface AlertLog {
+  id: string;
+  eventId: string;
+  applicationId: string;
+  eventType: AlertEventType;
+  kind: 'REMINDER' | 'ESCALATION';
+  level: number;
+  dueDate: string;
+  region: Region;
+  recipientRole: UserRole;
+  recipientEmail?: string;
+  title: string;
+  reason: string;
+  institutionName?: string;
+  createdAt: string;
+  mailStatus: 'SENT' | 'FAILED' | 'SKIPPED';
+  mailError?: string;
+  escalationId?: string;
+  notificationId?: string;
+}
+
+export interface HealthStatus {
+  status: string;
+  timestamp: string;
+  service: string;
+  version: string;
+  mail?: { mode: string; from: string };
 }
 
 export type Domain = 'CIVIL' | 'CSE' | 'ELECTRICAL' | 'MECHANICAL';
@@ -152,6 +222,7 @@ export interface InspectionAssignment {
   inspectors: { id: string; name: string; domain: Domain; homeCity: string }[];
   status: 'SCHEDULED' | 'COMPLETED';
   report?: EvcReport;
+  reportDueAt?: string;
   source: 'ortools' | 'fallback' | 'manual';
 }
 
@@ -214,6 +285,8 @@ export interface Application {
   lat?: number;
   lng?: number;
   domain?: Domain;
+  region?: Region;
+  undertakingDueAt?: string;
   scheduledInspection?: InspectionAssignment;
 }
 

@@ -55,6 +55,7 @@ The Hono API will be live at:
 - Healthcheck: `http://localhost:4000/health`
 - Seeded Applications: `http://localhost:4000/applications`
 - Compliance Expiry Check: `http://localhost:4000/cron/expiry-check`
+- Alerts & Escalation Run: `http://localhost:4000/cron/alerts` (requires `CRON_SECRET`)
 - Cryptographic Ledger: `http://localhost:4000/ledger/APP-2024-001`
 - Ledger Verification: `http://localhost:4000/ledger/APP-2024-001/verify`
 
@@ -82,7 +83,12 @@ Both the backend and frontend seamlessly fall back to local in-memory engines wh
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob access token for uploaded PDF/PNG files | Stores files safely in local `./uploads/` directory (gitignored) |
 | `AI_GATEWAY_API_KEY` | Vercel AI SDK Gateway key for Multimodal Vision extraction | Uses deterministic mock extractor (`source: "mock"`) |
 | `EXTRACTION_MODEL` | Vision model ID (e.g. `gpt-4o-mini`, `gemini-1.5-flash`) | Defaults to `gpt-4o-mini` when AI Gateway is enabled |
-| `CRON_SECRET` | Bearer token protecting `/cron/expiry-check` | Accepts `Bearer dev-cron-secret` for local development & testing |
+| `CRON_SECRET` | Bearer token protecting `/cron/expiry-check` and `/cron/alerts` | Expiry check accepts `Bearer dev-cron-secret`; alerts refuse to run (HTTP 503) unless set |
+| `MAIL_MODE` | Alert email delivery: `log`, `ethereal` or `live` | Defaults to `log` (prints the message, never sends) |
+| `MAIL_FROM` | Sender address for alert emails | `no-reply@vishwas.local` |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` | SMTP credentials for `MAIL_MODE=live` | Unused in log/ethereal modes |
+| `PORTAL_URL` | Base URL used in alert email links | `http://localhost:3000` |
+| `ALLOW_DEMO_HEADER_ROLE` | Enables legacy `x-role` auth fallback for demos | `false` (JWT required) |
 | `OPTIMIZER_URL` | Endpoint of the Python Google OR-Tools VRP optimizer microservice | Uses built-in pure TypeScript vehicle routing solver (`optimizerFallback.ts`) with identical constraints |
 | `NEXT_PUBLIC_API_URL` | Frontend pointer to backend URL | Defaults to `http://localhost:4000` with offline mock fallback |
 
@@ -109,7 +115,11 @@ All endpoints return standard JSON. Errors return `{ "error": string }`.
 | `POST` | `/applications/:id/schedule-evc` | Confirm & record EVC committee assignment | Header: `x-role: officer`<br>Body: `{ inspectorIds: [id1, id2], date }` |
 | `POST` | `/applications/:id/evc-report` | Committee files inspection report, advances state to `EVC_DONE` | Header: `x-role: committee`<br>Body: `{ inspectorId, observations, recommendations, passed, metrics }` |
 | `POST` | `/cron/expiry-check` | Daily job to recompute expiry tiers (90/60/30) & lock overdue apps | Header: `Authorization: Bearer <CRON_SECRET>` |
-| `GET` | `/notifications` | List compliance notifications (newest first) | None |
+| `GET`/`POST` | `/cron/alerts` | Daily reminder + escalation engine (idempotent) | Header: `Authorization: Bearer <CRON_SECRET>` (503 if unset) |
+| `GET` | `/escalations` | List escalations (`?status=&eventType=`), region-scoped | Header: `Authorization: Bearer <JWT>` (OFFICER/COMMITTEE/CHIEF) |
+| `POST` | `/escalations/:id/acknowledge` | Move escalation to `ACKNOWLEDGED` and write ledger entry | Bearer JWT |
+| `POST` | `/escalations/:id/resolve` | Resolve with mandatory remarks and write ledger entry | Bearer JWT; `{ remarks }` |
+| `GET` | `/notifications` | List in-app notifications (role/region scoped when authenticated) | Optional Bearer JWT |
 | `POST` | `/notifications/:id/read` | Mark in-app alert as read | None |
 | `GET` | `/ledger/:applicationId` | Retrieve audit chain blocks | None |
 | `GET` | `/ledger/:applicationId/verify` | Verify cryptographic hash chain | None |
@@ -151,9 +161,29 @@ Automates the assignment of Expert Visit Committee (EVC) physical inspections fo
 
 ---
 
+## 🔔 Reminder & Escalation Engine (Phase C)
+
+A single config file (`backend/src/config/alerts.ts`) drives both reminders and escalations:
+
+- **Reminder offsets**: 30 / 15 / 7 / 1 days before the due date, applied to application pendency, EVC scheduling, EVC report submission, institutional undertakings, document expiry and document authenticity verification.
+- **Escalation matrix**: each `{ eventType, level, delayDays, recipientRole, region }` row is raised once its delay has elapsed. Region `ALL` inherits the item's region; a fixed region pins the escalation to that region.
+- **Idempotency**: every dispatch is keyed `${eventId}:${kind}:${level}` in the alert log, so rerunning the cron never duplicates a notification, email or ledger entry.
+- **Email delivery**: Nodemailer with `MAIL_MODE=log` (default, prints the message), `ethereal` (test inbox + preview URL) or `live` (SMTP). Messages contain ONLY the application id, a one-line reason and a portal link. Sends retry once and record `SENT` / `FAILED` / `SKIPPED`; credentials are never logged.
+- **Escalation lifecycle**: `OPEN → ACKNOWLEDGED → RESOLVED`. Resolving requires remarks and writes `ESCALATION_RESOLVED` (plus `ESCALATION_ACKNOWLEDGED`) to the cryptographic ledger.
+- **Scoping**: institutions only see their own notifications; regional officers see their region; `CHIEF` sees everything.
+- **UI**: a dedicated `/alerts` page shows reminders for institutions and a filterable escalation queue with acknowledge/resolve actions for officers, committee members and the chief.
+
+```bash
+# Run the daily alert engine (requires CRON_SECRET to be set)
+curl -X POST http://localhost:4000/cron/alerts \
+  -H "Authorization: Bearer dev-cron-secret"
+```
+
+---
+
 ## 🧪 Automated Testing
 
-The backend includes 47 unit, pipeline, and scheduler tests running under Vitest:
+The backend includes 89 unit, pipeline, scheduler and alert-engine tests running under Vitest:
 
 ```bash
 cd backend
@@ -191,7 +221,10 @@ Test coverage includes:
    - `BLOB_READ_WRITE_TOKEN` (optional, Vercel Blob)
    - `AI_GATEWAY_API_KEY` (optional, Vercel AI SDK Gateway)
    - `OPTIMIZER_URL` (optional, Python OR-Tools microservice)
-   - `CRON_SECRET` (secret for `/cron/expiry-check`)
+   - `CRON_SECRET` (secret for `/cron/expiry-check` and `/cron/alerts`; the alert cron stays disabled without it)
+   - `MAIL_MODE` (`log` | `ethereal` | `live`), `MAIL_FROM`, `PORTAL_URL`
+   - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` (only for `MAIL_MODE=live`)
+   - `ALLOW_DEMO_HEADER_ROLE` (keep `false` in production)
 
 ### Deploying the Frontend
 1. Import repository as a second project in Vercel.
@@ -213,5 +246,6 @@ Test coverage includes:
 - [x] Daily compliance document expiry monitor with automated lock (`/cron/expiry-check`)
 - [x] In-app notifications & navbar alert bell (`NotificationBell.tsx`)
 - [x] Phase A: Google OR-Tools & TypeScript VRP solver for EVC scheduling with conflict-of-interest exclusion (`optimizer/`, `scheduler.ts`)
-- [ ] // TODO(next): Phase B: Authentication, RBAC & Role Isolation
+- [x] Phase B: JWT authentication, RBAC, role isolation & SLA timelines (`services/auth.ts`, `middleware/auth.ts`)
+- [x] Phase C: Config-driven reminders, escalation matrix, email delivery & `/alerts` console (`config/alerts.ts`, `services/alerts.ts`, `services/mailer.ts`)
 - [ ] // TODO(next): Smart contract anchor on Polygon / Hyperledger for multi-state decentralized notary

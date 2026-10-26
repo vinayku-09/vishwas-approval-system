@@ -34,6 +34,7 @@ export function Navbar() {
     { href: '/institution', label: 'Institution Portal' },
     { href: '/officer', label: 'Officer Queue' },
     { href: '/committee', label: 'Committee Inspections' },
+    { href: '/alerts', label: 'Alerts & Escalations' },
   ];
 
   return (
@@ -102,7 +103,7 @@ export function Navbar() {
               <span className="text-[10px] uppercase font-bold text-blue-300 px-2 hidden lg:inline">
                 Active Role:
               </span>
-              {(['institution', 'officer', 'committee'] as Role[]).map((r) => {
+              {(['institution', 'officer', 'committee', 'chief'] as Role[]).map((r) => {
                 const isSelected = role === r;
                 return (
                   <button

@@ -4,6 +4,10 @@
     {
       "path": "/cron/expiry-check",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/cron/alerts",
+      "schedule": "0 1 * * *"
     }
   ],
   "rewrites": [

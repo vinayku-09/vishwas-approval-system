@@ -21,6 +21,28 @@ export function normalizeRole(role: string): UserRole {
 }
 
 /**
+ * Builds the legacy demo identity from x-role / x-region when
+ * ALLOW_DEMO_HEADER_ROLE=true. Returns null when the fallback is disabled or
+ * no role header is present.
+ */
+function demoUserFromHeaders(c: Context): AuthTokenPayload | null {
+  if (process.env.ALLOW_DEMO_HEADER_ROLE !== 'true') return null;
+  const roleHeader = c.req.header('x-role');
+  if (!roleHeader) return null;
+
+  const normRole = normalizeRole(roleHeader);
+  return {
+    sub: `DEMO-${normRole}`,
+    role: normRole,
+    name: `Demo ${normRole}`,
+    email: `demo.${normRole.toLowerCase()}@aicte.gov.in`,
+    institutionName: normRole === 'INSTITUTION' ? 'Delhi Institute of Advanced Technology & AI' : undefined,
+    inspectorId: normRole === 'COMMITTEE' ? 'INS-002' : undefined,
+    region: (c.req.header('x-region')?.toUpperCase() as AuthTokenPayload['region']) || 'ALL',
+  };
+}
+
+/**
  * Extracts Bearer token or evaluates legacy x-role only if ALLOW_DEMO_HEADER_ROLE=true
  */
 export async function authMiddleware(c: Context, next: Next): Promise<Response | void> {
@@ -37,23 +59,10 @@ export async function authMiddleware(c: Context, next: Next): Promise<Response |
     }
   }
 
-  // Check if legacy x-role header fallback is explicitly allowed (default: OFF)
-  const allowDemoHeader = process.env.ALLOW_DEMO_HEADER_ROLE === 'true';
-  if (allowDemoHeader) {
-    const roleHeader = c.req.header('x-role');
-    if (roleHeader) {
-      const normRole = normalizeRole(roleHeader);
-      const demoUser: AuthTokenPayload = {
-        sub: `DEMO-${normRole}`,
-        role: normRole,
-        name: `Demo ${normRole}`,
-        email: `demo.${normRole.toLowerCase()}@aicte.gov.in`,
-        institutionName: normRole === 'INSTITUTION' ? 'Delhi Institute of Advanced Technology & AI' : undefined,
-        inspectorId: normRole === 'COMMITTEE' ? 'INS-002' : undefined,
-      };
-      c.set('user', demoUser);
-      return next();
-    }
+  const demoUser = demoUserFromHeaders(c);
+  if (demoUser) {
+    c.set('user', demoUser);
+    return next();
   }
 
   return c.json({ error: 'Unauthorized: Missing authentication token' }, 401);
@@ -70,9 +79,15 @@ export async function optionalAuthMiddleware(c: Context, next: Next): Promise<Re
     try {
       const payload = await verifyJwt(token);
       c.set('user', payload);
+      return next();
     } catch {
       // Ignore invalid token on optional routes
     }
+  }
+
+  const demoUser = demoUserFromHeaders(c);
+  if (demoUser) {
+    c.set('user', demoUser);
   }
   return next();
 }

@@ -92,6 +92,8 @@ export interface ComplianceDocument {
   tier?: WarningTier;
   daysRemaining: number;
   lastCheckedAt: string;
+  // Optional due date for a pending authenticity/verification check (Phase C).
+  authenticityDueAt?: string; // YYYY-MM-DD
 }
 
 export interface Notification {
@@ -103,9 +105,24 @@ export interface Notification {
   read: boolean;
   createdAt: string;
   idempotencyKey: string;
+  // Alert routing metadata (Phase C)
+  recipientRole?: UserRole;
+  region?: Region;
+  institutionName?: string;
+  eventId?: string;
+  escalationId?: string;
 }
 
 export type Domain = 'CIVIL' | 'CSE' | 'ELECTRICAL' | 'MECHANICAL';
+
+export type Region =
+  | 'NORTH'
+  | 'SOUTH'
+  | 'EAST'
+  | 'WEST'
+  | 'CENTRAL'
+  | 'NORTH_EAST'
+  | 'ALL';
 
 export interface Inspector {
   id: string;
@@ -153,6 +170,8 @@ export interface InspectionAssignment {
   status: 'SCHEDULED' | 'COMPLETED';
   report?: EvcReport;
   source: 'ortools' | 'fallback' | 'manual';
+  // Optional due date for the post-inspection EVC report (Phase C alerts).
+  reportDueAt?: string; // YYYY-MM-DD
 }
 
 export interface RouteStop {
@@ -214,7 +233,10 @@ export interface Application {
   lat?: number;
   lng?: number;
   domain?: Domain;
+  region?: Region;
   scheduledInspection?: InspectionAssignment;
+  // Optional due date for a pending institutional undertaking (Phase C alerts).
+  undertakingDueAt?: string; // YYYY-MM-DD
 }
 
 export interface LedgerEntry {
@@ -248,6 +270,7 @@ export interface User {
   role: UserRole;
   institutionName?: string;
   inspectorId?: string;
+  region?: Region;
   createdAt?: string;
 }
 
@@ -258,6 +281,7 @@ export interface AuthUser {
   role: UserRole;
   institutionName?: string;
   inspectorId?: string;
+  region?: Region;
 }
 
 export interface AuthTokenPayload {
@@ -267,6 +291,7 @@ export interface AuthTokenPayload {
   email: string;
   institutionName?: string;
   inspectorId?: string;
+  region?: Region;
   iat?: number;
   exp?: number;
 }
@@ -298,4 +323,75 @@ export interface SlaInfo {
   color: string;
   remainingDays: number;
   elapsedPercent: number;
+}
+
+// ---------------------------------------------------------------------------
+// Phase C: Alert & Escalation Engine
+// ---------------------------------------------------------------------------
+
+export type AlertEventType =
+  | 'PENDENCY'
+  | 'EVC_SCHEDULING'
+  | 'REPORT_SUBMISSION'
+  | 'UNDERTAKING'
+  | 'DOCUMENT_EXPIRY'
+  | 'DOCUMENT_AUTHENTICITY';
+
+export type AlertKind = 'REMINDER' | 'ESCALATION';
+
+export type EscalationStatus = 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED';
+
+export type MailStatus = 'SENT' | 'FAILED' | 'SKIPPED';
+
+export type MailMode = 'live' | 'log' | 'ethereal';
+
+export interface Escalation {
+  id: string;
+  applicationId: string;
+  eventType: AlertEventType;
+  level: number;
+  status: EscalationStatus;
+  createdAt: string;
+  remarks: string;
+  region: Region;
+  recipientRole: UserRole;
+  reason: string;
+  institutionName?: string;
+  acknowledgedAt?: string;
+  resolvedAt?: string;
+}
+
+/**
+ * Immutable record of one alert dispatch attempt. The id is the idempotency
+ * key (`eventId:kind:level`) so reruns can never dispatch the same alert twice.
+ */
+export interface AlertLog {
+  id: string;
+  eventId: string;
+  applicationId: string;
+  eventType: AlertEventType;
+  kind: AlertKind;
+  level: number;
+  dueDate: string;
+  region: Region;
+  recipientRole: UserRole;
+  recipientEmail?: string;
+  title: string;
+  reason: string;
+  institutionName?: string;
+  createdAt: string;
+  mailStatus: MailStatus;
+  mailError?: string;
+  escalationId?: string;
+  notificationId?: string;
+}
+
+export interface AlertItem {
+  eventId: string;
+  applicationId: string;
+  eventType: AlertEventType;
+  dueDate: string;
+  reason: string;
+  region: Region;
+  institutionName?: string;
 }

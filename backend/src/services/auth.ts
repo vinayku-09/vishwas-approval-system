@@ -1,6 +1,6 @@
 import { SignJWT, jwtVerify } from 'jose';
 import bcrypt from 'bcryptjs';
-import { AuthTokenPayload, UserRole } from '../types.js';
+import { AuthTokenPayload, Region, UserRole } from '../types.js';
 import { resolveJwtSecret } from '../config/timelines.js';
 
 /**
@@ -27,6 +27,7 @@ export async function signJwt(payload: {
   email: string;
   institutionName?: string;
   inspectorId?: string;
+  region?: Region;
 }): Promise<string> {
   const secret = getJwtSecret();
   return new SignJWT({
@@ -35,6 +36,7 @@ export async function signJwt(payload: {
     email: payload.email,
     institutionName: payload.institutionName,
     inspectorId: payload.inspectorId,
+    region: payload.region,
   })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(payload.sub)
@@ -56,6 +58,7 @@ export async function verifyJwt(token: string): Promise<AuthTokenPayload> {
     email: payload.email as string,
     institutionName: payload.institutionName as string | undefined,
     inspectorId: payload.inspectorId as string | undefined,
+    region: payload.region as Region | undefined,
     exp: payload.exp,
     iat: payload.iat,
   };

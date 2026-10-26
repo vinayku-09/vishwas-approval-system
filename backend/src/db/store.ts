@@ -1,16 +1,21 @@
 import {
   Affiliation,
+  AlertEventType,
+  AlertLog,
   Application,
   ApplicationType,
   ComplianceDocument,
   DocumentMetadata,
   Domain,
+  Escalation,
+  EscalationStatus,
   EvcReport,
   ExtractedFields,
   InspectionAssignment,
   Inspector,
   LedgerEntry,
   Notification,
+  Region,
   SignoffRecord,
   Status,
   User,
@@ -46,6 +51,20 @@ export interface IStore {
   addNotification(notification: Notification): Promise<{ created: boolean; notification: Notification }>;
   listNotifications(): Promise<Notification[]>;
   markNotificationRead(id: string): Promise<boolean>;
+
+  // Alerts & Escalations (Phase C)
+  listAlertLogs(): Promise<AlertLog[]>;
+  getAlertLog(id: string): Promise<AlertLog | null>;
+  saveAlertLog(log: AlertLog): Promise<AlertLog>;
+  updateAlertLog(id: string, updates: Partial<AlertLog>): Promise<AlertLog | null>;
+  listEscalations(filters?: {
+    status?: EscalationStatus;
+    eventType?: AlertEventType;
+    region?: Region;
+  }): Promise<Escalation[]>;
+  getEscalation(id: string): Promise<Escalation | null>;
+  saveEscalation(escalation: Escalation): Promise<Escalation>;
+  updateEscalation(id: string, updates: Partial<Escalation>): Promise<Escalation | null>;
 
   // Signoff
   recordSignoff(record: SignoffRecord): Promise<SignoffRecord>;
@@ -88,6 +107,8 @@ class InMemoryStore implements IStore {
   private affiliations: Map<string, Affiliation> = new Map();
   private inspections: Map<string, InspectionAssignment> = new Map();
   private users: Map<string, User> = new Map();
+  private alertLogs: Map<string, AlertLog> = new Map();
+  private escalations: Map<string, Escalation> = new Map();
 
   constructor() {
     this.seed();
@@ -140,6 +161,7 @@ class InMemoryStore implements IStore {
       lat: data.lat || 19.076,
       lng: data.lng || 72.877,
       domain: data.domain || 'CSE',
+      region: 'ALL',
     };
 
     this.applications.set(id, application);
@@ -310,6 +332,70 @@ class InMemoryStore implements IStore {
     return true;
   }
 
+  // Alerts & Escalations (Phase C)
+  async listAlertLogs(): Promise<AlertLog[]> {
+    return JSON.parse(JSON.stringify(Array.from(this.alertLogs.values())));
+  }
+
+  async getAlertLog(id: string): Promise<AlertLog | null> {
+    const log = this.alertLogs.get(id);
+    return log ? JSON.parse(JSON.stringify(log)) : null;
+  }
+
+  async saveAlertLog(log: AlertLog): Promise<AlertLog> {
+    this.alertLogs.set(log.id, JSON.parse(JSON.stringify(log)));
+    return JSON.parse(JSON.stringify(log));
+  }
+
+  async updateAlertLog(id: string, updates: Partial<AlertLog>): Promise<AlertLog | null> {
+    const existing = this.alertLogs.get(id);
+    if (!existing) return null;
+    const updated = { ...existing, ...updates, id: existing.id };
+    this.alertLogs.set(id, updated);
+    return JSON.parse(JSON.stringify(updated));
+  }
+
+  async listEscalations(filters?: {
+    status?: EscalationStatus;
+    eventType?: AlertEventType;
+    region?: Region;
+  }): Promise<Escalation[]> {
+    let list = Array.from(this.escalations.values());
+    if (filters?.status) {
+      list = list.filter((e) => e.status === filters.status);
+    }
+    if (filters?.eventType) {
+      list = list.filter((e) => e.eventType === filters.eventType);
+    }
+    if (filters?.region) {
+      list = list.filter((e) => e.region === filters.region);
+    }
+    return list
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .map((e) => JSON.parse(JSON.stringify(e)));
+  }
+
+  async getEscalation(id: string): Promise<Escalation | null> {
+    const escalation = this.escalations.get(id);
+    return escalation ? JSON.parse(JSON.stringify(escalation)) : null;
+  }
+
+  async saveEscalation(escalation: Escalation): Promise<Escalation> {
+    this.escalations.set(escalation.id, JSON.parse(JSON.stringify(escalation)));
+    return JSON.parse(JSON.stringify(escalation));
+  }
+
+  async updateEscalation(
+    id: string,
+    updates: Partial<Escalation>
+  ): Promise<Escalation | null> {
+    const existing = this.escalations.get(id);
+    if (!existing) return null;
+    const updated = { ...existing, ...updates, id: existing.id };
+    this.escalations.set(id, updated);
+    return JSON.parse(JSON.stringify(updated));
+  }
+
   async recordSignoff(record: SignoffRecord): Promise<SignoffRecord> {
     this.signoffs.set(record.applicationId, JSON.parse(JSON.stringify(record)));
     return JSON.parse(JSON.stringify(record));
@@ -379,6 +465,8 @@ class InMemoryStore implements IStore {
     this.affiliations.clear();
     this.inspections.clear();
     this.users.clear();
+    this.alertLogs.clear();
+    this.escalations.clear();
 
     // -------------------------------------------------------------
     // Phase B Seeds: Demo Users for each Role
@@ -391,6 +479,15 @@ class InMemoryStore implements IStore {
         passwordHash: defaultPasswordHash,
         name: 'Dr. Arvind Kumar',
         role: 'OFFICER',
+        region: 'ALL',
+      },
+      {
+        id: 'USR-OFFICER-WEST',
+        email: 'officer.west@aicte.gov.in',
+        passwordHash: defaultPasswordHash,
+        name: 'Dr. Kavita Deshmukh',
+        role: 'OFFICER',
+        region: 'WEST',
       },
       {
         id: 'USR-COMMITTEE-01',
@@ -399,6 +496,7 @@ class InMemoryStore implements IStore {
         name: 'Dr. Sunita Patil',
         role: 'COMMITTEE',
         inspectorId: 'INS-002', // Matches seeded assignment INSP-APP-2024-003
+        region: 'WEST',
       },
       {
         id: 'USR-CHIEF-01',
@@ -406,6 +504,7 @@ class InMemoryStore implements IStore {
         passwordHash: defaultPasswordHash,
         name: 'Prof. Anil Sahasrabudhe',
         role: 'CHIEF',
+        region: 'ALL',
       },
       {
         id: 'USR-INST-01',
@@ -471,6 +570,7 @@ class InMemoryStore implements IStore {
       lat: 28.545,
       lng: 77.1926,
       domain: 'MECHANICAL',
+      region: 'NORTH',
     };
     this.applications.set(app1Id, app1);
 
@@ -584,6 +684,8 @@ class InMemoryStore implements IStore {
       lat: 18.6279,
       lng: 73.8131,
       domain: 'CIVIL',
+      region: 'SOUTH',
+      undertakingDueAt: pastDays(3),
     };
     this.applications.set(app2Id, app2);
 
@@ -602,6 +704,7 @@ class InMemoryStore implements IStore {
       expiryDate: app2ExpiredNoc,
       ...computeExpiryState(app2ExpiredNoc, new Date(now)),
       lastCheckedAt: new Date().toISOString(),
+      authenticityDueAt: pastDays(2),
     };
     this.complianceDocuments.set(compApp2_1.id, compApp2_1);
     this.complianceDocuments.set(compApp2_2.id, compApp2_2);
@@ -615,6 +718,9 @@ class InMemoryStore implements IStore {
       read: false,
       createdAt: new Date(now - 1 * day).toISOString(),
       idempotencyKey: `${compApp2_2.id}-OVERDUE`,
+      recipientRole: 'INSTITUTION',
+      region: 'SOUTH',
+      institutionName: app2.institutionName,
     });
 
     const app2Entry1 = createLedgerEntry({
@@ -678,6 +784,7 @@ class InMemoryStore implements IStore {
       lat: 19.033,
       lng: 73.0297,
       domain: 'CSE',
+      region: 'WEST',
     };
     this.applications.set(app3Id, app3);
 
@@ -696,6 +803,7 @@ class InMemoryStore implements IStore {
       expiryDate: app3WarningNoc,
       ...computeExpiryState(app3WarningNoc, new Date(now)),
       lastCheckedAt: new Date().toISOString(),
+      authenticityDueAt: inDays(3),
     };
     this.complianceDocuments.set(compApp3_1.id, compApp3_1);
     this.complianceDocuments.set(compApp3_2.id, compApp3_2);
@@ -709,6 +817,9 @@ class InMemoryStore implements IStore {
       read: false,
       createdAt: new Date(now - 3 * day).toISOString(),
       idempotencyKey: `${compApp3_2.id}-30`,
+      recipientRole: 'INSTITUTION',
+      region: 'WEST',
+      institutionName: app3.institutionName,
     });
 
     const app3E1 = createLedgerEntry({
@@ -765,6 +876,7 @@ class InMemoryStore implements IStore {
       lat: 22.56,
       lng: 88.35,
       domain: 'ELECTRICAL',
+      region: 'EAST',
     };
     this.applications.set(app4Id, app4);
 
@@ -875,34 +987,38 @@ class InMemoryStore implements IStore {
       area: number;
       lease: string;
       noc: string;
+      region: Region;
+      /** SLA due date offset in days relative to now (negative = overdue). */
+      slaOffsetDays?: number;
+      undertakingOffsetDays?: number;
     }> = [
       // APP 5: Mumbai (Conflict demo with INS-001)
-      { id: 'APP-2024-005', institutionName: 'Veermata Jijabai Technological Institute (VJTI)', type: 'NEW', status: 'EVC_REQUIRED', domain: 'CSE', lat: 18.9750, lng: 72.8258, area: 24000, lease: '2060-01-01', noc: '2028-12-31' },
+      { id: 'APP-2024-005', institutionName: 'Veermata Jijabai Technological Institute (VJTI)', type: 'NEW', status: 'EVC_REQUIRED', domain: 'CSE', lat: 18.9750, lng: 72.8258, area: 24000, lease: '2060-01-01', noc: '2028-12-31', region: 'WEST', slaOffsetDays: -2 },
       // APP 6: Mysuru (Civil)
-      { id: 'APP-2024-006', institutionName: 'National Institute of Engineering', type: 'NEW', status: 'EVC_REQUIRED', domain: 'CIVIL', lat: 12.2830, lng: 76.6410, area: 18000, lease: '2055-06-30', noc: '2029-03-31' },
+      { id: 'APP-2024-006', institutionName: 'National Institute of Engineering', type: 'NEW', status: 'EVC_REQUIRED', domain: 'CIVIL', lat: 12.2830, lng: 76.6410, area: 18000, lease: '2055-06-30', noc: '2029-03-31', region: 'SOUTH', slaOffsetDays: 2, undertakingOffsetDays: 2 },
       // APP 7: New Delhi (Mechanical)
-      { id: 'APP-2024-007', institutionName: 'Delhi College of Engineering & Research', type: 'NEW', status: 'EVC_REQUIRED', domain: 'MECHANICAL', lat: 28.7495, lng: 77.1180, area: 22000, lease: '2050-01-01', noc: '2028-09-30' },
+      { id: 'APP-2024-007', institutionName: 'Delhi College of Engineering & Research', type: 'NEW', status: 'EVC_REQUIRED', domain: 'MECHANICAL', lat: 28.7495, lng: 77.1180, area: 22000, lease: '2050-01-01', noc: '2028-09-30', region: 'NORTH', slaOffsetDays: -1 },
       // APP 8: Pune (CSE)
-      { id: 'APP-2024-008', institutionName: 'Deccan Institute of Advanced Computing', type: 'NEW', status: 'EVC_REQUIRED', domain: 'CSE', lat: 18.5100, lng: 73.8400, area: 12000, lease: '2045-12-31', noc: '2027-11-30' },
+      { id: 'APP-2024-008', institutionName: 'Deccan Institute of Advanced Computing', type: 'NEW', status: 'EVC_REQUIRED', domain: 'CSE', lat: 18.5100, lng: 73.8400, area: 12000, lease: '2045-12-31', noc: '2027-11-30', region: 'WEST', slaOffsetDays: 7 },
       // APP 9: Bengaluru (Civil)
-      { id: 'APP-2024-009', institutionName: 'Bangalore Institute of Technology', type: 'NEW', status: 'EVC_REQUIRED', domain: 'CIVIL', lat: 12.9560, lng: 77.5740, area: 16000, lease: '2052-05-15', noc: '2029-01-31' },
+      { id: 'APP-2024-009', institutionName: 'Bangalore Institute of Technology', type: 'NEW', status: 'EVC_REQUIRED', domain: 'CIVIL', lat: 12.9560, lng: 77.5740, area: 16000, lease: '2052-05-15', noc: '2029-01-31', region: 'SOUTH', slaOffsetDays: 15 },
       // APP 10: Chandigarh (Mechanical)
-      { id: 'APP-2024-010', institutionName: 'Punjab Engineering Academy', type: 'NEW', status: 'EVC_REQUIRED', domain: 'MECHANICAL', lat: 30.7600, lng: 76.7800, area: 19500, lease: '2058-08-20', noc: '2028-10-15' },
+      { id: 'APP-2024-010', institutionName: 'Punjab Engineering Academy', type: 'NEW', status: 'EVC_REQUIRED', domain: 'MECHANICAL', lat: 30.7600, lng: 76.7800, area: 19500, lease: '2058-08-20', noc: '2028-10-15', region: 'NORTH', slaOffsetDays: 30 },
       // APP 11: Hyderabad (Electrical)
-      { id: 'APP-2024-011', institutionName: 'Telangana State Polytechnic', type: 'NEW', status: 'EVC_REQUIRED', domain: 'ELECTRICAL', lat: 17.4000, lng: 78.4700, area: 14000, lease: '2049-11-10', noc: '2027-08-30' },
+      { id: 'APP-2024-011', institutionName: 'Telangana State Polytechnic', type: 'NEW', status: 'EVC_REQUIRED', domain: 'ELECTRICAL', lat: 17.4000, lng: 78.4700, area: 14000, lease: '2049-11-10', noc: '2027-08-30', region: 'SOUTH', slaOffsetDays: 11 },
       // APP 12: Ahmedabad (CSE)
-      { id: 'APP-2024-012', institutionName: 'Gujarat Institute of Data Sciences', type: 'NEW', status: 'EVC_REQUIRED', domain: 'CSE', lat: 23.0300, lng: 72.5600, area: 15500, lease: '2054-04-01', noc: '2028-04-30' },
+      { id: 'APP-2024-012', institutionName: 'Gujarat Institute of Data Sciences', type: 'NEW', status: 'EVC_REQUIRED', domain: 'CSE', lat: 23.0300, lng: 72.5600, area: 15500, lease: '2054-04-01', noc: '2028-04-30', region: 'WEST', slaOffsetDays: 11 },
       // APP 13: Chennai (Civil, Submitted)
-      { id: 'APP-2024-013', institutionName: 'Tamil Nadu Polytechnic College', type: 'EXTENSION_OF_APPROVAL', status: 'SUBMITTED', domain: 'CIVIL', lat: 13.0600, lng: 80.2500, area: 11000, lease: '2040-01-01', noc: '2029-05-30' },
+      { id: 'APP-2024-013', institutionName: 'Tamil Nadu Polytechnic College', type: 'EXTENSION_OF_APPROVAL', status: 'SUBMITTED', domain: 'CIVIL', lat: 13.0600, lng: 80.2500, area: 11000, lease: '2040-01-01', noc: '2029-05-30', region: 'SOUTH', slaOffsetDays: -5 },
       // APP 14: Kolkata (Electrical, Submitted)
-      { id: 'APP-2024-014', institutionName: 'Bengal Institute of Technology', type: 'EXTENSION_OF_APPROVAL', status: 'SUBMITTED', domain: 'ELECTRICAL', lat: 22.5100, lng: 88.4000, area: 13500, lease: '2042-07-15', noc: '2028-06-20' },
+      { id: 'APP-2024-014', institutionName: 'Bengal Institute of Technology', type: 'EXTENSION_OF_APPROVAL', status: 'SUBMITTED', domain: 'ELECTRICAL', lat: 22.5100, lng: 88.4000, area: 13500, lease: '2042-07-15', noc: '2028-06-20', region: 'EAST', slaOffsetDays: 4 },
       // APP 15: Leh, Ladakh (Electrical, Unassigned visit demo - exceeds travel limits)
-      { id: 'APP-2024-015', institutionName: 'Remote Himalayan Institute of Tech, Leh', type: 'NEW', status: 'EVC_REQUIRED', domain: 'ELECTRICAL', lat: 34.1526, lng: 77.5771, area: 8500, lease: '2065-01-01', noc: '2030-01-01' },
+      { id: 'APP-2024-015', institutionName: 'Remote Himalayan Institute of Tech, Leh', type: 'NEW', status: 'EVC_REQUIRED', domain: 'ELECTRICAL', lat: 34.1526, lng: 77.5771, area: 8500, lease: '2065-01-01', noc: '2030-01-01', region: 'NORTH', slaOffsetDays: 11 },
     ];
 
     for (const appData of extraApps) {
       const createdAt = new Date(now - 10 * day).toISOString();
-      const slaDueAt = new Date(now + 11 * day).toISOString();
+      const slaDueAt = new Date(now + (appData.slaOffsetDays ?? 11) * day).toISOString();
 
       const appObj: Application = {
         id: appData.id,
@@ -914,6 +1030,11 @@ class InMemoryStore implements IStore {
         domain: appData.domain,
         lat: appData.lat,
         lng: appData.lng,
+        region: appData.region,
+        undertakingDueAt:
+          appData.undertakingOffsetDays !== undefined
+            ? new Date(now + appData.undertakingOffsetDays * day).toISOString().split('T')[0]
+            : undefined,
         extracted: {
           landAreaSqm: appData.area,
           leaseEndDate: appData.lease,
@@ -950,6 +1071,50 @@ class InMemoryStore implements IStore {
       } else {
         this.ledger.set(appData.id, [e1]);
       }
+    }
+
+    // -------------------------------------------------------------
+    // Phase C Seeds: open EVC report submissions (overdue & near due)
+    // -------------------------------------------------------------
+    const app13 = this.applications.get('APP-2024-013');
+    const app14 = this.applications.get('APP-2024-014');
+    if (app13) {
+      const inspection13: InspectionAssignment = {
+        id: 'INSP-APP-2024-013',
+        applicationId: app13.id,
+        institutionName: app13.institutionName,
+        domain: app13.domain || 'CIVIL',
+        lat: app13.lat || 13.06,
+        lng: app13.lng || 80.25,
+        scheduledDate: pastDays(6),
+        reportDueAt: pastDays(2),
+        inspectors: [
+          { id: 'INS-006', name: 'Dr. Anand Kumar', domain: 'CIVIL', homeCity: 'Chennai, TN' },
+          { id: 'INS-004', name: 'Dr. Priya Nair', domain: 'CIVIL', homeCity: 'Bengaluru, KA' },
+        ],
+        status: 'SCHEDULED',
+        source: 'manual',
+      };
+      this.inspections.set(inspection13.id, inspection13);
+    }
+    if (app14) {
+      const inspection14: InspectionAssignment = {
+        id: 'INSP-APP-2024-014',
+        applicationId: app14.id,
+        institutionName: app14.institutionName,
+        domain: app14.domain || 'ELECTRICAL',
+        lat: app14.lat || 22.51,
+        lng: app14.lng || 88.4,
+        scheduledDate: inDays(1),
+        reportDueAt: inDays(3),
+        inspectors: [
+          { id: 'INS-011', name: 'Dr. Deepa Mukherjee', domain: 'ELECTRICAL', homeCity: 'Kolkata, WB' },
+          { id: 'INS-010', name: 'Prof. Ramesh Iyer', domain: 'ELECTRICAL', homeCity: 'Hyderabad, TS' },
+        ],
+        status: 'SCHEDULED',
+        source: 'manual',
+      };
+      this.inspections.set(inspection14.id, inspection14);
     }
 
     // Seed completed inspection for APP-2024-003

@@ -3,8 +3,37 @@ import { store } from '../db/store.js';
 import { computeExpiryState } from '../services/expiry.js';
 import { Notification } from '../types.js';
 import { DEFAULT_CRON_SECRET } from '../config/timelines.js';
+import { runAlertEngine } from '../services/alerts.js';
 
 export const cronRouter = new Hono();
+
+/**
+ * GET|POST /cron/alerts - daily reminder & escalation run.
+ *
+ * Security: requires a Bearer CRON_SECRET. Unlike the legacy expiry job this
+ * endpoint NEVER falls back to a default secret - if CRON_SECRET is unset every
+ * request is refused with 503 so an unsecured deployment cannot be triggered.
+ */
+async function handleAlertsCron(c: import('hono').Context) {
+  const expectedSecret = process.env.CRON_SECRET;
+  if (!expectedSecret) {
+    return c.json(
+      { error: 'Cron alerts disabled: CRON_SECRET is not configured' },
+      503
+    );
+  }
+
+  const authHeader = c.req.header('authorization') || '';
+  if (!authHeader.startsWith('Bearer ') || authHeader.slice(7).trim() !== expectedSecret) {
+    return c.json({ error: 'Unauthorized: Invalid or missing cron authorization token' }, 401);
+  }
+
+  const result = await runAlertEngine(new Date());
+  return c.json(result);
+}
+
+cronRouter.get('/alerts', handleAlertsCron);
+cronRouter.post('/alerts', handleAlertsCron);
 
 // POST /cron/expiry-check - daily scheduled job to recompute compliance states & lock overdue applications
 cronRouter.post('/expiry-check', async (c) => {
