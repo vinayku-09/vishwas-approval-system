@@ -3,8 +3,9 @@ import { canTransition, validateTransition, getNextStatuses } from '../services/
 
 describe('AICTE Approval State Machine', () => {
   describe('Valid Transitions', () => {
-    it('allows SUBMITTED -> SCRUTINY', () => {
+    it('allows SUBMITTED -> SCRUTINY and the route-guarded ONLY_EVC entry', () => {
       expect(canTransition('SUBMITTED', 'SCRUTINY')).toBe(true);
+      expect(canTransition('SUBMITTED', 'EVC_REQUIRED')).toBe(true);
       expect(validateTransition('SUBMITTED', 'SCRUTINY').valid).toBe(true);
     });
 
@@ -62,7 +63,7 @@ describe('AICTE Approval State Machine', () => {
 
   describe('getNextStatuses helper', () => {
     it('returns valid candidate statuses for dropdown selection', () => {
-      expect(getNextStatuses('SUBMITTED')).toEqual(['SCRUTINY']);
+      expect(getNextStatuses('SUBMITTED')).toEqual(['SCRUTINY', 'EVC_REQUIRED']);
       expect(getNextStatuses('SCRUTINY')).toEqual(['DEFICIENT', 'EVC_REQUIRED', 'DECISION']);
       expect(getNextStatuses('DECISION')).toEqual(['APPROVED', 'REJECTED']);
       expect(getNextStatuses('APPROVED')).toEqual([]);

@@ -46,11 +46,12 @@ import {
 } from '../../lib/api';
 import { StatusBadge } from '../../components/StatusBadge';
 import { SlaBadge } from '../../components/SlaBadge';
+import { RouteSequence } from '../../components/RouteSequence';
 import { DeficiencyList } from '../../components/DeficiencyList';
 import { SafeguardNotice } from '../../components/SafeguardNotice';
 
 const NEXT_STATE_TRANSITIONS: Record<Status, Status[]> = {
-  SUBMITTED: ['SCRUTINY'],
+  SUBMITTED: ['SCRUTINY', 'EVC_REQUIRED'],
   SCRUTINY: ['DEFICIENT', 'EVC_REQUIRED', 'DECISION'],
   DEFICIENT: ['SCRUTINY'],
   EVC_REQUIRED: ['EVC_DONE'],
@@ -422,6 +423,7 @@ export default function OfficerPage() {
             <option value="NEW">New Institution</option>
             <option value="EXTENSION_OF_APPROVAL">Extension of Approval</option>
             <option value="INTAKE_CHANGE">Intake Expansion</option>
+            <option value="APPEAL">Appeal / SAC-SHC Review</option>
           </select>
         </div>
       </div>
@@ -1102,13 +1104,15 @@ export default function OfficerPage() {
                 <StatusBadge status={advancingApp.status} size="md" />
                 {advancingApp.route && (
                   <p className="text-[11px] text-slate-500 mt-1">
-                    {advancingApp.route.name} · stage {advancingApp.route.currentStage}
+                    {advancingApp.route.name} � stage {advancingApp.route.currentStage}
                     {advancingApp.route.autoNextStatus
-                      ? ` · configured next: ${advancingApp.route.autoNextStatus}`
-                      : ' · no automatic next stage'}
+                      ? ` � configured next: ${advancingApp.route.autoNextStatus}`
+                      : ' � no automatic next stage'}
                   </p>
                 )}
               </div>
+
+              <RouteSequence route={advancingApp.route} compact />
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">

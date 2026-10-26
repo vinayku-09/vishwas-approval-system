@@ -40,6 +40,7 @@ import {
 } from '../../lib/api';
 import { StatusBadge } from '../../components/StatusBadge';
 import { SlaBadge } from '../../components/SlaBadge';
+import { RouteSequence } from '../../components/RouteSequence';
 import { Timeline } from '../../components/Timeline';
 import { DeficiencyList } from '../../components/DeficiencyList';
 import { formatDate, shortHash } from '../../lib/utils';
@@ -478,8 +479,14 @@ export default function InstitutionPage() {
                         </button>
                       )}
                     </div>
-                    <div className="p-4 rounded-xl border border-slate-200 bg-white">
-                      <Timeline currentStatus={selectedApp.status} />
+                    <div className="rounded-xl border border-slate-200 bg-white">
+                      {selectedApp.route ? (
+                        <RouteSequence route={selectedApp.route} />
+                      ) : (
+                        <div className="p-4">
+                          <Timeline currentStatus={selectedApp.status} />
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -838,6 +845,7 @@ export default function InstitutionPage() {
                   <option value="NEW">New Institution Approval</option>
                   <option value="EXTENSION_OF_APPROVAL">Extension of Approval (EoA)</option>
                   <option value="INTAKE_CHANGE">Intake Expansion / Course Addition</option>
+                  <option value="APPEAL">Appeal / SAC-SHC Review</option>
                 </select>
               </div>
 

@@ -1,7 +1,7 @@
 /**
  * routing.test.ts
  *
- * Part 2: configurable approval routes, automatic stage progression, guarded
+ * Part 2b: the four PS approval routes, route-aware progression, guarded
  * return/revert, standard notices and the read-only electronic case summary.
  */
 
@@ -15,7 +15,7 @@ import {
   getRouteDefinition,
   getRouteState,
 } from '../services/routing.js';
-import type { Application } from '../types.js';
+import type { Application, ApplicationType, Status } from '../types.js';
 
 function bearer(token: string) {
   return { Authorization: `Bearer ${token}` };
@@ -54,21 +54,119 @@ function application(overrides: Partial<Application>): Application {
   };
 }
 
-describe('Part 2 - configurable routes and automatic progression', () => {
-  it('maps application types to configured placeholder routes', () => {
-    expect(getRouteDefinition(application({ type: 'NEW' })).id).toBe('NEW_APPROVAL');
+async function createApplicationViaApi(type: ApplicationType, token: string) {
+  const res = await app.request('/applications', {
+    method: 'POST',
+    headers: { ...bearer(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      institutionName: `Route Test ${type} ${Date.now()}`,
+      type,
+    }),
+  });
+  expect(res.status).toBe(201);
+  return (await res.json()) as Application;
+}
+
+async function advanceApplication(
+  id: string,
+  token: string,
+  to?: Status,
+  remarks = 'Route end-to-end test'
+) {
+  return app.request(`/applications/${id}/advance`, {
+    method: 'POST',
+    headers: { ...bearer(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(to ? { to, remarks } : { remarks }),
+  });
+}
+
+async function expectAdvance(
+  id: string,
+  token: string,
+  expectedStatus: Status,
+  to?: Status
+) {
+  const res = await advanceApplication(id, token, to);
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as Application;
+  expect(body.status).toBe(expectedStatus);
+  return body;
+}
+
+async function recordConfirmSignoff(id: string, token: string) {
+  const res = await app.request(`/applications/${id}/signoff`, {
+    method: 'POST',
+    headers: { ...bearer(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      decision: 'CONFIRM',
+      remarks: 'Human review completed for route test.',
+    }),
+  });
+  expect(res.status).toBe(200);
+}
+
+describe('Part 2b - the four PS routes and route-aware progression', () => {
+  it('maps application types and status overrides to the four PS routes', () => {
+    expect(getRouteDefinition(application({ type: 'NEW' })).id).toBe('SCRUTINY_EVC');
     expect(getRouteDefinition(application({ type: 'EXTENSION_OF_APPROVAL' })).id).toBe(
-      'EXTENSION_OF_APPROVAL'
+      'ONLY_SCRUTINY'
     );
-    expect(getRouteDefinition(application({ type: 'INTAKE_CHANGE' })).id).toBe('INTAKE_CHANGE');
+    expect(getRouteDefinition(application({ type: 'INTAKE_CHANGE' })).id).toBe('ONLY_EVC');
+    expect(getRouteDefinition(application({ type: 'APPEAL' })).id).toBe('EVC_SAC_SHC');
+    expect(getRouteDefinition(application({ status: 'REJECTED' })).id).toBe(
+      'EVC_SAC_SHC'
+    );
+    expect(getRouteDefinition(application({ status: 'APPEAL_SHC' })).id).toBe(
+      'EVC_SAC_SHC'
+    );
   });
 
-  it('advances SUBMITTED and DEFICIENT to SCRUTINY automatically', () => {
-    expect(getAutoNextStatus(application({ status: 'SUBMITTED' }))).toBe('SCRUTINY');
-    expect(getAutoNextStatus(application({ status: 'DEFICIENT' }))).toBe('SCRUTINY');
+  it('defines the exact ordered stage list for each PS route', () => {
+    expect(getRouteDefinition(application({ type: 'EXTENSION_OF_APPROVAL' })).stages).toEqual([
+      'SUBMITTED',
+      'SCRUTINY',
+      'DECISION',
+    ]);
+    expect(getRouteDefinition(application({ type: 'NEW' })).stages).toEqual([
+      'SUBMITTED',
+      'SCRUTINY',
+      'EVC_REQUIRED',
+      'EVC_DONE',
+      'DECISION',
+    ]);
+    expect(getRouteDefinition(application({ type: 'APPEAL' })).stages).toEqual([
+      'SUBMITTED',
+      'SCRUTINY',
+      'EVC_REQUIRED',
+      'EVC_DONE',
+      'DECISION',
+      'APPEAL_SHC',
+      'APPEAL_SAC',
+    ]);
+    expect(getRouteDefinition(application({ status: 'REJECTED' })).stages).toEqual(
+      getRouteDefinition(application({ type: 'APPEAL' })).stages
+    );
+    expect(getRouteDefinition(application({ type: 'INTAKE_CHANGE' })).stages).toEqual([
+      'SUBMITTED',
+      'EVC_REQUIRED',
+      'EVC_DONE',
+      'DECISION',
+    ]);
   });
 
-  it('routes NEW applications through EVC but extension/intake routes straight to decision', () => {
+  it('advances SUBMITTED according to the selected route', () => {
+    expect(getAutoNextStatus(application({ type: 'NEW', status: 'SUBMITTED' }))).toBe(
+      'SCRUTINY'
+    );
+    expect(
+      getAutoNextStatus(application({ type: 'EXTENSION_OF_APPROVAL', status: 'SUBMITTED' }))
+    ).toBe('SCRUTINY');
+    expect(
+      getAutoNextStatus(application({ type: 'INTAKE_CHANGE', status: 'SUBMITTED' }))
+    ).toBe('EVC_REQUIRED');
+  });
+
+  it('applies EVC only where the route configures it', () => {
     expect(
       getAutoNextStatus(application({ type: 'NEW', status: 'SCRUTINY', deficiencies: [] }))
     ).toBe('EVC_REQUIRED');
@@ -78,9 +176,15 @@ describe('Part 2 - configurable routes and automatic progression', () => {
       )
     ).toBe('DECISION');
     expect(
-      getAutoNextStatus(application({ type: 'NEW', status: 'SCRUTINY', deficiencies: [
-        { id: 'DEF-1', clause: 'C1', message: 'Missing land record', severity: 'CRITICAL' },
-      ] }))
+      getAutoNextStatus(
+        application({
+          type: 'NEW',
+          status: 'SCRUTINY',
+          deficiencies: [
+            { id: 'DEF-1', clause: 'C1', message: 'Missing land record', severity: 'CRITICAL' },
+          ],
+        })
+      )
     ).toBe('DEFICIENT');
   });
 
@@ -88,11 +192,28 @@ describe('Part 2 - configurable routes and automatic progression', () => {
     expect(getAutoNextStatus(application({ status: 'EVC_REQUIRED' }))).toBeNull();
     expect(getAutoNextStatus(application({ status: 'DECISION' }))).toBeNull();
     expect(getAutoNextStatus(application({ status: 'APPEAL_SHC' }))).toBeNull();
+    expect(getAutoNextStatus(application({ status: 'APPEAL_SAC' }))).toBeNull();
   });
 
-  it('exposes configured stage, next statuses and return targets in the response decorator', () => {
-    const decorated = decorateApplication(application({ status: 'DECISION' }));
-    expect(decorated.route?.id).toBe('NEW_APPROVAL');
+  it('exposes route-specific next stages rather than the global state machine', () => {
+    const intake = getRouteState(
+      application({ type: 'INTAKE_CHANGE', status: 'SUBMITTED' })
+    );
+    expect(intake.nextStatuses).toEqual(['EVC_REQUIRED']);
+
+    const extension = getRouteState(
+      application({ type: 'EXTENSION_OF_APPROVAL', status: 'SCRUTINY' })
+    );
+    expect(extension.nextStatuses).toEqual(['DEFICIENT', 'DECISION']);
+
+    const rejected = getRouteState(application({ status: 'REJECTED' }));
+    expect(rejected.id).toBe('EVC_SAC_SHC');
+    expect(rejected.nextStatuses).toEqual(['APPEAL_SHC']);
+  });
+
+  it('exposes configured stage and return targets in the response decorator', () => {
+    const decorated = decorateApplication(application({ type: 'NEW', status: 'DECISION' }));
+    expect(decorated.route?.id).toBe('SCRUTINY_EVC');
     expect(decorated.route?.currentStage).toBe('DECISION');
     expect(decorated.route?.nextStatuses).toEqual(['APPROVED', 'REJECTED']);
     expect(decorated.route?.returnTargets).toEqual([
@@ -101,6 +222,13 @@ describe('Part 2 - configurable routes and automatic progression', () => {
       'SCRUTINY',
       'DEFICIENT',
     ]);
+    expect(decorated.route?.stages).toEqual([
+      'SUBMITTED',
+      'SCRUTINY',
+      'EVC_REQUIRED',
+      'EVC_DONE',
+      'DECISION',
+    ]);
   });
 
   it('returns no return targets for terminal applications', () => {
@@ -108,7 +236,127 @@ describe('Part 2 - configurable routes and automatic progression', () => {
   });
 });
 
-describe('Part 2 - return/revert and case summary API', () => {
+describe('Part 2b - end-to-end route execution', () => {
+  beforeEach(() => {
+    store.seed();
+  });
+
+  it('runs ONLY_SCRUTINY from submission to approval', async () => {
+    const token = await officerAllToken();
+    const created = await createApplicationViaApi('EXTENSION_OF_APPROVAL', token);
+    expect(created.route?.id).toBe('ONLY_SCRUTINY');
+    expect(created.route?.stages).toEqual(['SUBMITTED', 'SCRUTINY', 'DECISION']);
+
+    await expectAdvance(created.id, token, 'SCRUTINY');
+    const decision = await expectAdvance(created.id, token, 'DECISION');
+    expect(decision.route?.id).toBe('ONLY_SCRUTINY');
+    const approved = await expectAdvance(created.id, token, 'APPROVED', 'APPROVED');
+    expect(approved.route?.id).toBe('ONLY_SCRUTINY');
+  });
+
+  it('runs SCRUTINY_EVC from submission through EVC to approval', async () => {
+    const token = await officerAllToken();
+    const created = await createApplicationViaApi('NEW', token);
+    expect(created.route?.id).toBe('SCRUTINY_EVC');
+
+    await expectAdvance(created.id, token, 'SCRUTINY');
+    const evcRequired = await expectAdvance(created.id, token, 'EVC_REQUIRED');
+    expect(evcRequired.route?.stages).toEqual([
+      'SUBMITTED',
+      'SCRUTINY',
+      'EVC_REQUIRED',
+      'EVC_DONE',
+      'DECISION',
+    ]);
+    await expectAdvance(created.id, token, 'EVC_DONE', 'EVC_DONE');
+    await expectAdvance(created.id, token, 'DECISION');
+    await expectAdvance(created.id, token, 'APPROVED', 'APPROVED');
+  });
+
+  it('runs ONLY_EVC from submission to approval without scrutiny', async () => {
+    const token = await officerAllToken();
+    const created = await createApplicationViaApi('INTAKE_CHANGE', token);
+    expect(created.route?.id).toBe('ONLY_EVC');
+    expect(created.route?.stages).toEqual([
+      'SUBMITTED',
+      'EVC_REQUIRED',
+      'EVC_DONE',
+      'DECISION',
+    ]);
+
+    await expectAdvance(created.id, token, 'EVC_REQUIRED');
+    await expectAdvance(created.id, token, 'EVC_DONE', 'EVC_DONE');
+    await expectAdvance(created.id, token, 'DECISION');
+    await expectAdvance(created.id, token, 'APPROVED', 'APPROVED');
+  });
+
+  it('runs EVC_SAC_SHC as a first-class application type route', async () => {
+    const token = await officerAllToken();
+    const created = await createApplicationViaApi('APPEAL', token);
+    expect(created.route?.id).toBe('EVC_SAC_SHC');
+    expect(created.route?.stages).toEqual([
+      'SUBMITTED',
+      'SCRUTINY',
+      'EVC_REQUIRED',
+      'EVC_DONE',
+      'DECISION',
+      'APPEAL_SHC',
+      'APPEAL_SAC',
+    ]);
+
+    await expectAdvance(created.id, token, 'SCRUTINY');
+    await expectAdvance(created.id, token, 'EVC_REQUIRED');
+    await expectAdvance(created.id, token, 'EVC_DONE', 'EVC_DONE');
+    await expectAdvance(created.id, token, 'DECISION');
+    await recordConfirmSignoff(created.id, token);
+    await expectAdvance(created.id, token, 'REJECTED', 'REJECTED');
+    await expectAdvance(created.id, token, 'APPEAL_SHC', 'APPEAL_SHC');
+    await expectAdvance(created.id, token, 'APPEAL_SAC', 'APPEAL_SAC');
+    await expectAdvance(created.id, token, 'APPROVED', 'APPROVED');
+  });
+
+  it('runs EVC_SAC_SHC through rejection, SHC, SAC and approval', async () => {
+    const token = await officerAllToken();
+    const created = await createApplicationViaApi('NEW', token);
+
+    await expectAdvance(created.id, token, 'SCRUTINY');
+    await expectAdvance(created.id, token, 'EVC_REQUIRED');
+    await expectAdvance(created.id, token, 'EVC_DONE', 'EVC_DONE');
+    await expectAdvance(created.id, token, 'DECISION');
+    await recordConfirmSignoff(created.id, token);
+
+    const rejected = await expectAdvance(created.id, token, 'REJECTED', 'REJECTED');
+    expect(rejected.route?.id).toBe('EVC_SAC_SHC');
+    expect(rejected.route?.stages).toContain('APPEAL_SHC');
+    expect(rejected.route?.stages).toContain('APPEAL_SAC');
+
+    await expectAdvance(created.id, token, 'APPEAL_SHC', 'APPEAL_SHC');
+    const atSac = await expectAdvance(created.id, token, 'APPEAL_SAC', 'APPEAL_SAC');
+    expect(atSac.route?.id).toBe('EVC_SAC_SHC');
+    await expectAdvance(created.id, token, 'APPROVED', 'APPROVED');
+  });
+
+  it('rejects a globally valid transition that is not part of the selected route', async () => {
+    const token = await officerAllToken();
+    const created = await createApplicationViaApi('EXTENSION_OF_APPROVAL', token);
+    await expectAdvance(created.id, token, 'SCRUTINY');
+
+    const res = await advanceApplication(created.id, token, 'EVC_REQUIRED');
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain('Only Scrutiny');
+    expect(body.error).toContain('DECISION');
+  });
+
+  it('rejects an invalid global transition', async () => {
+    const token = await officerAllToken();
+    const created = await createApplicationViaApi('NEW', token);
+    const res = await advanceApplication(created.id, token, 'APPROVED');
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('Part 2b - return/revert and case summary API', () => {
   beforeEach(() => {
     store.seed();
   });
@@ -124,7 +372,7 @@ describe('Part 2 - return/revert and case summary API', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as Application;
     expect(body.status).toBe('SCRUTINY');
-    expect(body.route?.id).toBe('NEW_APPROVAL');
+    expect(body.route?.id).toBe('SCRUTINY_EVC');
   });
 
   it('rejects automatic progression from a stage requiring human action', async () => {
@@ -176,7 +424,7 @@ describe('Part 2 - return/revert and case summary API', () => {
     ).toBe(true);
   });
 
-  it('rejects a return target outside the configured route or without a reason', async () => {
+  it('rejects a return target outside the configured route or without category/reason', async () => {
     const token = await officerAllToken();
     const badTarget = await app.request('/applications/APP-2024-005/return', {
       method: 'POST',
@@ -188,6 +436,16 @@ describe('Part 2 - return/revert and case summary API', () => {
       }),
     });
     expect(badTarget.status).toBe(400);
+
+    const missingCategory = await app.request('/applications/APP-2024-005/return', {
+      method: 'POST',
+      headers: { ...bearer(token), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: 'SCRUTINY',
+        reason: 'A return without a category must be rejected by the API.',
+      }),
+    });
+    expect(missingCategory.status).toBe(400);
 
     const shortReason = await app.request('/applications/APP-2024-005/return', {
       method: 'POST',
@@ -221,14 +479,21 @@ describe('Part 2 - return/revert and case summary API', () => {
     const body = (await res.json()) as {
       readOnly: boolean;
       application: Application;
-      route: { id: string };
+      route: { id: string; stages: Status[] };
       timeline: unknown[];
       ledger: { valid: boolean; totalEntries: number };
       safeguardNotice: string;
     };
     expect(body.readOnly).toBe(true);
     expect(body.application.id).toBe('APP-2024-001');
-    expect(body.route.id).toBe('NEW_APPROVAL');
+    expect(body.route.id).toBe('SCRUTINY_EVC');
+    expect(body.route.stages).toEqual([
+      'SUBMITTED',
+      'SCRUTINY',
+      'EVC_REQUIRED',
+      'EVC_DONE',
+      'DECISION',
+    ]);
     expect(body.timeline.length).toBeGreaterThan(0);
     expect(body.ledger.totalEntries).toBeGreaterThan(0);
     expect(body.ledger.valid).toBe(true);

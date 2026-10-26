@@ -22,6 +22,7 @@ import { scheduleSingleEvc } from '../services/scheduler.js';
 import {
   decorateApplication,
   getAutoNextStatus,
+  getPostScrutinyStatus,
   getRouteDefinition,
   getRouteState,
 } from '../services/routing.js';
@@ -50,7 +51,7 @@ const evcReportSchema = z.object({
 
 const createApplicationSchema = z.object({
   institutionName: z.string().min(3, 'Institution name must be at least 3 characters'),
-  type: z.enum(['NEW', 'EXTENSION_OF_APPROVAL', 'INTAKE_CHANGE'] as const),
+  type: z.enum(['NEW', 'EXTENSION_OF_APPROVAL', 'INTAKE_CHANGE', 'APPEAL'] as const),
   extracted: z
     .object({
       landAreaSqm: z.number().positive().optional(),
@@ -272,13 +273,8 @@ applicationsRouter.post('/:id/extract', async (c) => {
   // Feed extracted values into existing AICTE rules
   const { results, deficiencies, allPassed } = evaluateRules(extractionResult.fields);
 
-  // Determine next state
-  let nextStatus: Status;
-  if (!allPassed) {
-    nextStatus = 'DEFICIENT';
-  } else {
-    nextStatus = application.type === 'NEW' ? 'EVC_REQUIRED' : 'DECISION';
-  }
+  // Determine next state from the configured route, not the application type.
+  const nextStatus: Status = getPostScrutinyStatus(application, !allPassed);
 
   const extractedScalars = {
     landAreaSqm: extractionResult.fields.landAreaSqm.value,
@@ -474,6 +470,20 @@ applicationsRouter.post('/:id/advance', async (c) => {
     return c.json({ error: validation.error }, 400);
   }
 
+  // Route validation: a globally valid transition must also belong to the
+  // configured PS route (for example ONLY_SCRUTINY cannot jump to EVC).
+  const routeState = getRouteState(application);
+  if (!routeState.nextStatuses.includes(targetStatus)) {
+    return c.json(
+      {
+        error: `Invalid transition from '${application.status}' to '${targetStatus}' for route '${routeState.name}'. Allowed next stages: [${
+          routeState.nextStatuses.join(', ') || 'None'
+        }]`,
+      },
+      400
+    );
+  }
+
   const updated = await store.updateApplication(id, {
     status: targetStatus,
   });
@@ -625,12 +635,7 @@ applicationsRouter.post('/:id/scrutiny', async (c) => {
 
   const { results, deficiencies, allPassed } = evaluateRules(updatedExtracted);
 
-  let nextStatus: Status;
-  if (!allPassed) {
-    nextStatus = 'DEFICIENT';
-  } else {
-    nextStatus = application.type === 'NEW' ? 'EVC_REQUIRED' : 'DECISION';
-  }
+  const nextStatus: Status = getPostScrutinyStatus(application, !allPassed);
 
   const updated = await store.updateApplication(id, {
     status: nextStatus,

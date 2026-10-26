@@ -3,13 +3,16 @@ import { Status } from '../types.js';
 /**
  * AICTE State Machine Transition Table
  * 
- * SUBMITTED -> SCRUTINY -> DEFICIENT | EVC_REQUIRED | DECISION
+ * SUBMITTED -> SCRUTINY | EVC_REQUIRED -> DEFICIENT | EVC_REQUIRED | DECISION
  * DEFICIENT -> SCRUTINY; EVC_REQUIRED -> EVC_DONE -> DECISION
  * DECISION -> APPROVED | REJECTED; REJECTED -> APPEAL_SHC -> APPEAL_SAC
  * APPEAL_SHC -> APPEAL_SAC | APPROVED; APPEAL_SAC -> APPROVED | REJECTED
+ *
+ * SUBMITTED can enter EVC_REQUIRED directly only for the configured ONLY_EVC
+ * route; route-level validation in the advance handler enforces that boundary.
  */
 export const TRANSITIONS: Record<Status, Status[]> = {
-  SUBMITTED: ['SCRUTINY'],
+  SUBMITTED: ['SCRUTINY', 'EVC_REQUIRED'],
   SCRUTINY: ['DEFICIENT', 'EVC_REQUIRED', 'DECISION'],
   DEFICIENT: ['SCRUTINY'],
   EVC_REQUIRED: ['EVC_DONE'],

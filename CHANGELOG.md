@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-10-26 - Part 2b: four PS approval routes
+
+### Added
+
+- Replaced the earlier type-named routes with the four PS routes: `ONLY_SCRUTINY`, `SCRUTINY_EVC`, `EVC_SAC_SHC` and `ONLY_EVC`.
+- Added canonical ordered stage lists for all four routes. `EVC_SAC_SHC` includes the existing `APPEAL_SHC -> APPEAL_SAC` order.
+- Added application-type mapping (`NEW -> SCRUTINY_EVC`, `EXTENSION_OF_APPROVAL -> ONLY_SCRUTINY`, `INTAKE_CHANGE -> ONLY_EVC`, `APPEAL -> EVC_SAC_SHC`) and a status override that also selects `EVC_SAC_SHC` for rejected/appeal cases.
+- Added route-aware next-stage validation so a globally valid transition is still rejected when it does not belong to the selected route.
+- Added reusable `RouteSequence` UI showing route name, route id and the full configured stage sequence on the institution application drawer, officer advance modal and case summary.
+- Added end-to-end tests for all four routes, including `EVC_SAC_SHC` selected as a first-class `APPEAL` application type, route-aware invalid transitions, return category/reason enforcement and the case-summary route sequence.
+
+### Changed
+
+- Scrutiny/extraction outcomes now follow route configuration instead of hard-coding `NEW`.
+- Updated README, architecture, assumptions and changelog for the four PS routes.
+
+### Verified
+
+- Backend typecheck (`npm run build`) passed.
+- Backend tests passed: **129/129** across 10 files.
+- Frontend production build passed.
+- Frontend API handling reviewed: HTTP 401/403/4xx/5xx responses raise `ApiError` and do not trigger demo-data fallback; local demo data is used only on network/timeout failures, with the demo banner shown.
+- No schema migration was needed.
+
 ## 2026-10-26 - Part 2: routes, returns, notices and case summary
 
 ### Added

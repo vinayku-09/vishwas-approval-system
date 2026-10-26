@@ -1,7 +1,8 @@
 export type ApplicationType =
   | 'NEW'
   | 'EXTENSION_OF_APPROVAL'
-  | 'INTAKE_CHANGE';
+  | 'INTAKE_CHANGE'
+  | 'APPEAL';
 
 export type Status =
   | 'SUBMITTED'
@@ -271,10 +272,10 @@ export interface OptimizationResult {
 }
 
 export type ApprovalRouteId =
-  | 'NEW_APPROVAL'
-  | 'EXTENSION_OF_APPROVAL'
-  | 'INTAKE_CHANGE'
-  | 'APPEAL';
+  | 'ONLY_SCRUTINY'
+  | 'SCRUTINY_EVC'
+  | 'EVC_SAC_SHC'
+  | 'ONLY_EVC';
 
 export type ReturnCategory =
   | 'DEFICIENCY'

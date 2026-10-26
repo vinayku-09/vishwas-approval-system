@@ -24,7 +24,7 @@ import { CaseSummary } from '../../../lib/types';
 import { getCaseSummary } from '../../../lib/api';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { SlaBadge } from '../../../components/SlaBadge';
-import { Timeline } from '../../../components/Timeline';
+import { RouteSequence } from '../../../components/RouteSequence';
 import { DeficiencyList } from '../../../components/DeficiencyList';
 import { SafeguardNotice } from '../../../components/SafeguardNotice';
 import { formatDate, shortHash } from '../../../lib/utils';
@@ -184,24 +184,7 @@ export default function CaseSummaryPage() {
         </div>
 
         <div className="pt-2">
-          <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">Configured route</p>
-          <Timeline currentStatus={app.status} />
-          <div className="flex flex-wrap gap-1.5 mt-3">
-            {route.stages.map((stage, idx) => (
-              <span
-                key={`${stage}-${idx}`}
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                  idx === route.currentIndex
-                    ? 'bg-gov-blue-900 text-white border-gov-blue-900'
-                    : idx < route.currentIndex
-                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                    : 'bg-white text-slate-500 border-slate-200'
-                }`}
-              >
-                {idx + 1}. {stage}
-              </span>
-            ))}
-          </div>
+          <RouteSequence route={route} />
         </div>
       </div>
 

@@ -102,11 +102,15 @@ Every value above is a product placeholder, not an official AICTE rule. See `doc
 
 The current workflow enforces valid transitions through a deterministic state machine. Rejection requires a recorded officer `CONFIRM` sign-off. Overrides require remarks. Automated checks never perform a final rejection on their own.
 
-Part 2 adds route metadata derived from application type:
+Routes are derived at response time from application type, with a status override for rejections and appeals:
 
-- `NEW_APPROVAL`, `EXTENSION_OF_APPROVAL` and `INTAKE_CHANGE` share the stage sequence `SUBMITTED → SCRUTINY → EVC_REQUIRED → EVC_DONE → DECISION`; only `NEW_APPROVAL` requires EVC by default.
-- `APPEAL` uses `APPEAL_SHC → APPEAL_SAC`.
+- `ONLY_SCRUTINY` (`EXTENSION_OF_APPROVAL`): `SUBMITTED -> SCRUTINY -> DECISION`.
+- `SCRUTINY_EVC` (`NEW`): `SUBMITTED -> SCRUTINY -> EVC_REQUIRED -> EVC_DONE -> DECISION`.
+- `EVC_SAC_SHC` (`APPEAL`; also rejected/appeal statuses): `SUBMITTED -> SCRUTINY -> EVC_REQUIRED -> EVC_DONE -> DECISION -> APPEAL_SHC -> APPEAL_SAC`. The existing state-machine order is SHC then SAC even though the PS short name lists SAC/SHC.
+- `ONLY_EVC` (`INTAKE_CHANGE`): `SUBMITTED -> EVC_REQUIRED -> EVC_DONE -> DECISION`.
+- These route stage lists are canonical; future stage-SLA configuration must import them rather than duplicating stage names.
 - `POST /applications/:id/advance` may omit `to`. The configured automatic next stage is used for `SUBMITTED`, `DEFICIENT`, `SCRUTINY` and `EVC_DONE`. `EVC_REQUIRED`, `DECISION` and appeal stages always require a human-selected target.
+- The advance handler rejects a globally valid transition that is not part of the selected route.
 - `POST /applications/:id/return` allows only configured earlier targets, requires a category and a recorded reason of at least 10 characters, and is limited to in-scope `OFFICER`/`CHIEF` users.
 - Returns and decisions create standard notices. Notices create in-app notifications and `NOTICE_ISSUED` ledger entries; returns also create `APPLICATION_RETURNED`.
 - `GET /applications/:id/case-summary` is scoped and read-only. It assembles route, timeline, returns, sign-off, documents, compliance, inspections, notices and ledger verification without mutating state.

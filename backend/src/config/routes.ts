@@ -1,10 +1,14 @@
 /**
- * routes.ts — Configurable approval routes, stage order and return policy.
+ * routes.ts - Configurable approval routes, stage order and return policy.
  *
  * Every route, stage order, automatic transition and return target in the
- * Part 2 workflow lives here so policy can change without editing route
+ * routing workflow lives here so policy can change without editing route
  * handlers. All values are placeholders pending the AICTE Approval Process
  * Handbook (APH) and are not official AICTE rules.
+ *
+ * The four PS route ids are the canonical source for stage order. Future
+ * stage-SLA configuration must import these route stage lists instead of
+ * duplicating stage names.
  */
 
 import type {
@@ -23,57 +27,83 @@ export interface ApprovalRouteDefinition {
   stages: Status[];
   /** Whether the route normally requires a physical EVC inspection. */
   requiresEvc: boolean;
-  /** The stage from which a final approve/reject decision is recorded. */
+  /**
+   * The stage used when a terminal application has no matching stage in the
+   * ordered route list (for example APPROVED or REJECTED).
+   */
   decisionStage: Status;
 }
 
 export const APPROVAL_ROUTES: Record<ApprovalRouteId, ApprovalRouteDefinition> = {
-  NEW_APPROVAL: {
-    id: 'NEW_APPROVAL',
-    name: 'New Institution Approval',
+  ONLY_SCRUTINY: {
+    id: 'ONLY_SCRUTINY',
+    name: 'Only Scrutiny',
     description:
-      'Placeholder route for fresh applications: scrutiny, EVC inspection, then competent-authority decision.',
+      'Placeholder PS route for applications resolved by scrutiny and a competent-authority decision, without an EVC inspection stage.',
+    applicationTypes: ['EXTENSION_OF_APPROVAL'],
+    stages: ['SUBMITTED', 'SCRUTINY', 'DECISION'],
+    requiresEvc: false,
+    decisionStage: 'DECISION',
+  },
+  SCRUTINY_EVC: {
+    id: 'SCRUTINY_EVC',
+    name: 'Scrutiny + EVC',
+    description:
+      'Placeholder PS route for fresh applications: scrutiny, EVC inspection, then competent-authority decision.',
     applicationTypes: ['NEW'],
     stages: ['SUBMITTED', 'SCRUTINY', 'EVC_REQUIRED', 'EVC_DONE', 'DECISION'],
     requiresEvc: true,
     decisionStage: 'DECISION',
   },
-  EXTENSION_OF_APPROVAL: {
-    id: 'EXTENSION_OF_APPROVAL',
-    name: 'Extension of Approval',
+  EVC_SAC_SHC: {
+    id: 'EVC_SAC_SHC',
+    name: 'EVC + SAC/SHC',
     description:
-      'Placeholder route for extension applications: scrutiny, optional inspection based on officer selection, then decision.',
-    applicationTypes: ['EXTENSION_OF_APPROVAL'],
-    stages: ['SUBMITTED', 'SCRUTINY', 'EVC_REQUIRED', 'EVC_DONE', 'DECISION'],
-    requiresEvc: false,
+      'Placeholder PS route for appeal applications and EVC-backed cases that reach the Standing Hearing Committee and Standing Appellate Committee. The existing state machine order is SHC then SAC even though the PS short name lists SAC/SHC.',
+    applicationTypes: ['APPEAL'],
+    stages: [
+      'SUBMITTED',
+      'SCRUTINY',
+      'EVC_REQUIRED',
+      'EVC_DONE',
+      'DECISION',
+      'APPEAL_SHC',
+      'APPEAL_SAC',
+    ],
+    requiresEvc: true,
     decisionStage: 'DECISION',
   },
-  INTAKE_CHANGE: {
-    id: 'INTAKE_CHANGE',
-    name: 'Intake Change',
+  ONLY_EVC: {
+    id: 'ONLY_EVC',
+    name: 'Only EVC',
     description:
-      'Placeholder route for intake/course changes: scrutiny, inspection when required, then decision.',
+      'Placeholder PS route for intake changes resolved by EVC inspection and a competent-authority decision, without a separate scrutiny stage.',
     applicationTypes: ['INTAKE_CHANGE'],
-    stages: ['SUBMITTED', 'SCRUTINY', 'EVC_REQUIRED', 'EVC_DONE', 'DECISION'],
-    requiresEvc: false,
+    stages: ['SUBMITTED', 'EVC_REQUIRED', 'EVC_DONE', 'DECISION'],
+    requiresEvc: true,
     decisionStage: 'DECISION',
-  },
-  APPEAL: {
-    id: 'APPEAL',
-    name: 'Appeal (SHC / SAC)',
-    description:
-      'Placeholder appeal route covering the Standing Hearing Committee and Standing Appellate Committee stages.',
-    applicationTypes: [],
-    stages: ['APPEAL_SHC', 'APPEAL_SAC'],
-    requiresEvc: false,
-    decisionStage: 'APPEAL_SAC',
   },
 };
 
+/**
+ * Application-type mapping. APPEAL makes EVC_SAC_SHC selectable from
+ * submission; rejected/appeal statuses also select it through the override.
+ */
 export const TYPE_ROUTE_MAP: Record<ApplicationType, ApprovalRouteId> = {
-  NEW: 'NEW_APPROVAL',
-  EXTENSION_OF_APPROVAL: 'EXTENSION_OF_APPROVAL',
-  INTAKE_CHANGE: 'INTAKE_CHANGE',
+  NEW: 'SCRUTINY_EVC',
+  EXTENSION_OF_APPROVAL: 'ONLY_SCRUTINY',
+  INTAKE_CHANGE: 'ONLY_EVC',
+  APPEAL: 'EVC_SAC_SHC',
+};
+
+/**
+ * Status-based route overrides. A rejected case enters the appeal route so its
+ * SAC/SHC stages are visible before the first hearing-stage transition.
+ */
+export const STATUS_ROUTE_MAP: Partial<Record<Status, ApprovalRouteId>> = {
+  REJECTED: 'EVC_SAC_SHC',
+  APPEAL_SHC: 'EVC_SAC_SHC',
+  APPEAL_SAC: 'EVC_SAC_SHC',
 };
 
 /**

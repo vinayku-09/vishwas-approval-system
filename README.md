@@ -11,7 +11,7 @@ Last verified locally on **2026-10-26**. No deployment has been performed.
 | Check | Result |
 | :--- | :--- |
 | Backend typecheck | Passed (`npm run build`) |
-| Backend tests | **120 passed / 120** in 10 test files |
+| Backend tests | **129 passed / 129** in 10 test files |
 | Frontend production build | Passed (`next build`, 9/9 pages generated) |
 | Neon migration | Applied; 12 public tables plus `drizzle.__drizzle_migrations` |
 | Active backend store | Postgres / Neon |
@@ -24,7 +24,7 @@ Last verified locally on **2026-10-26**. No deployment has been performed.
 - JWT login, bcrypt password verification, 8-hour signed sessions and role-aware claims.
 - Legacy demo-header fallback is disabled by default with `ALLOW_DEMO_HEADER_ROLE=false`.
 - Role/region scoping for applications, documents, inspections, ledger views, notifications and escalations, with authenticated boundary tests.
-- Configurable approval routes for new approval, extension, intake change and appeal, with stage order, automatic progression, guarded return/revert targets and categories.
+- Four configurable PS approval routes (`ONLY_SCRUTINY`, `SCRUTINY_EVC`, `EVC_SAC_SHC`, `ONLY_EVC`) with canonical stage order, automatic progression, guarded return/revert targets and categories.
 - Standard return and decision notices issued to institutions with in-app notifications and `NOTICE_ISSUED` ledger entries.
 - Read-only electronic case summary at `/case/[id]` with route, timeline, returns, sign-off, documents, inspections, notices and ledger verification.
 - Universal human-decision safeguard notice on officer advance/review, committee EVC report and case-summary screens.
@@ -82,16 +82,19 @@ Last verified locally on **2026-10-26**. No deployment has been performed.
 
 ## Part 2: Routes, Returns and Case Summary
 
-Approval routes are resolved from application type at response time using `backend/src/config/routes.ts`. Route metadata is not persisted, so no migration is required; return records are appended to the application JSONB payload.
+Approval routes are resolved from application type at response time using `backend/src/config/routes.ts`; `EVC_SAC_SHC` is a first-class `APPEAL` application route and is also selected for rejected/appeal statuses through a configured status override. Route metadata is not persisted, so no migration is required; return records are appended to the application JSONB payload.
 
-| Route | Application type | Stages | EVC required | Return categories |
+| Route | Selected for | Stages | EVC required | Return categories |
 | :--- | :--- | :--- | :--- | :--- |
-| `NEW_APPROVAL` | `NEW` | SUBMITTED → SCRUTINY → EVC_REQUIRED → EVC_DONE → DECISION | Yes | Deficiency, document missing, clarification, compliance, other |
-| `EXTENSION_OF_APPROVAL` | `EXTENSION_OF_APPROVAL` | SUBMITTED → SCRUTINY → EVC_REQUIRED → EVC_DONE → DECISION | No by default | Same |
-| `INTAKE_CHANGE` | `INTAKE_CHANGE` | SUBMITTED → SCRUTINY → EVC_REQUIRED → EVC_DONE → DECISION | No by default | Same |
-| `APPEAL` | Appeal statuses | APPEAL_SHC → APPEAL_SAC | No | Not enabled |
+| `ONLY_SCRUTINY` | `EXTENSION_OF_APPROVAL` | SUBMITTED -> SCRUTINY -> DECISION | No | Deficiency, document missing, clarification, compliance, other |
+| `SCRUTINY_EVC` | `NEW` | SUBMITTED -> SCRUTINY -> EVC_REQUIRED -> EVC_DONE -> DECISION | Yes | Same |
+| `EVC_SAC_SHC` | `APPEAL`; also `REJECTED`, `APPEAL_SHC`, `APPEAL_SAC` | SUBMITTED -> SCRUTINY -> EVC_REQUIRED -> EVC_DONE -> DECISION -> APPEAL_SHC -> APPEAL_SAC | Yes | Same |
+| `ONLY_EVC` | `INTAKE_CHANGE` | SUBMITTED -> EVC_REQUIRED -> EVC_DONE -> DECISION | Yes | Same |
 
+- The four route ids and stage lists are the canonical PS route configuration. Future stage-SLA configuration must import those stage lists instead of repeating stage names.
+- `EVC_SAC_SHC` uses the existing state-machine order SHC then SAC, even though the PS short name lists SAC/SHC.
 - `POST /applications/:id/advance` can omit `to`; the configured automatic next stage is used only for `SUBMITTED`, `DEFICIENT`, `SCRUTINY` and `EVC_DONE`. `EVC_REQUIRED`, `DECISION` and appeal stages always need a human-selected target.
+- A globally valid transition is rejected if it is not part of the selected route (for example `ONLY_SCRUTINY` cannot jump to `EVC_REQUIRED`).
 - `POST /applications/:id/return` requires `OFFICER` or `CHIEF`, an in-scope application, a configured return target, a category and a reason of at least 10 characters. It writes `APPLICATION_RETURNED` and `NOTICE_ISSUED` ledger entries and notifies the institution.
 - Terminal decisions issue a standard decision notice. All decision screens show a human-decision safeguard notice.
 - `GET /applications/:id/case-summary` returns a scoped, read-only electronic case summary. It does not mutate state.
@@ -188,7 +191,7 @@ Automated actions support the approval process and do not replace decisions of t
 
 | Area | Key requirement | Status | Notes |
 | :--- | :--- | :--- | :--- |
-| A | Routing and return/revert | Built with placeholders | Configurable routes, automatic progression, guarded return targets/categories, standard notices and read-only case summary exist. Route policy approval is pending the APH. |
+| A | Routing and return/revert | Built with placeholders | The four PS routes, canonical stage sequences, route-aware progression, guarded return targets/categories, standard notices and read-only case summary exist. Route policy approval is pending the APH. |
 | B | Pendency dashboards | Partial foundation | SLA fields, expiry alerts and escalation engine exist; stage SLA config, dashboards, ageing buckets and bottleneck views are Part 3. |
 | C | Visibility and EVC status | Partial | EVC scheduling, scoped notifications and case summary exist; EVC status board and delayed-case visibility are Part 3. |
 | D | Undertakings | Not built | Part 4 will add conditions, evidence, verification and overdue escalation. |
