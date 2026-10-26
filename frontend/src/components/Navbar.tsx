@@ -7,6 +7,7 @@ import { ShieldCheck, Menu, X, Landmark, LogIn, LogOut } from 'lucide-react';
 import { Role, AuthUser } from '../lib/types';
 import {
   clearSession,
+  dashboardRoleView,
   getSessionEventName,
   getStoredRole,
   getStoredUser,
@@ -49,12 +50,22 @@ export function Navbar() {
     router.push('/login');
   };
 
+  const view = user ? dashboardRoleView(user) : null;
   const navLinks = [
     { href: '/', label: 'Overview' },
-    { href: '/institution', label: 'Institution Portal' },
-    { href: '/officer', label: 'Officer Queue' },
-    { href: '/committee', label: 'Committee Inspections' },
-    { href: '/alerts', label: 'Alerts & Escalations' },
+    {
+      href: '/dashboard',
+      label: view === 'institution' ? 'My applications' : 'Pendency Dashboard',
+    },
+    ...(view && view !== 'institution' ? [{ href: '/evc-board', label: 'EVC Board' }] : []),
+    ...(view === 'institution' || !user ? [{ href: '/institution', label: 'Institution Portal' }] : []),
+    ...(view === 'regional_officer' || view === 'bureau_officer' || view === 'head_office'
+      ? [{ href: '/officer', label: 'Officer Queue' }]
+      : []),
+    ...(view === 'committee' || view === 'head_office'
+      ? [{ href: '/committee', label: 'Committee Inspections' }]
+      : []),
+    ...(view && view !== 'institution' ? [{ href: '/alerts', label: 'Alerts & Escalations' }] : []),
   ];
 
   return (

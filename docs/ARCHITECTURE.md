@@ -30,7 +30,7 @@ All timelines, reminder tiers and escalation delays in the current build are pla
 
 ### Frontend
 
-- `frontend/src/app/` - Next.js App Router pages: home, login, institution, officer, committee, alerts, public ledger verification and read-only case summary (`case/[id]`).
+- `frontend/src/app/` - Next.js App Router pages: home, login, institution, officer, committee, alerts, pendency dashboard, EVC board, public ledger verification and read-only case summary (`case/[id]`).
 - `frontend/src/lib/api.ts` - API client, JWT/session handling, demo fallback and demo-account metadata.
 - `frontend/src/lib/mock.ts` - clearly labelled local demo data used when the API is unavailable.
 - `frontend/src/components/` - navigation, demo badge, notification bell, shared UI and `SafeguardNotice`.
@@ -38,11 +38,11 @@ All timelines, reminder tiers and escalation delays in the current build are pla
 ### Backend
 
 - `backend/src/app.ts` - Hono app, CORS, health and route mounting.
-- `backend/src/routes/` - auth, applications, documents, scheduling, cron, notifications, escalations and ledger endpoints.
+- `backend/src/routes/` - auth, applications, documents, scheduling, cron, notifications, escalations, ledger and dashboard endpoints.
 - `backend/src/middleware/auth.ts` - JWT validation, role claims and optional legacy demo-header fallback.
-- `backend/src/services/` - workflow, routing, notices, rules, extraction, storage, scheduler, alerts, mailer, expiry and ledger logic.
+- `backend/src/services/` - workflow, routing, notices, rules, extraction, storage, scheduler, alerts, mailer, expiry, ledger, pendency and dashboard logic.
 - `backend/src/db/` - Drizzle schema, in-memory repository, Postgres repository, migration seed and store selection.
-- `backend/src/config/` - central timeline, alert, escalation and route constants.
+- `backend/src/config/` - central timeline, alert, escalation, route and placeholder stage-SLA constants.
 - `backend/drizzle/` - generated SQL migrations.
 
 ### Optimizer
@@ -70,7 +70,7 @@ The Postgres schema contains 12 application tables plus Drizzle migration metada
 | `alert_logs` | Reminder and escalation dispatch log with mail status |
 | `escalations` | Escalation lifecycle (`OPEN`, `ACKNOWLEDGED`, `RESOLVED`) |
 
-Application, user and alert records use typed JSON payloads for the current prototype. Route metadata is resolved from application type at response time and is not persisted. Return records (`returns`, `lastReturn`) live in the existing application JSONB payload, so Part 2 did not add a table or migration. The data model will evolve in Parts 3 and 4 for stage SLAs, undertakings and renewals.
+Application, user and alert records use typed JSON payloads for the current prototype. Route metadata is resolved from application type at response time and is not persisted. Return records (`returns`, `lastReturn`) live in the existing application JSONB payload, so Part 2 did not add a table or migration. Stage SLA values used by Part 3 dashboards are derived from the four PS route stage lists at runtime and are not persisted. The data model will evolve in Part 4 for undertakings and renewals.
 
 ## 4. Configuration Locations
 
@@ -82,7 +82,7 @@ Application, user and alert records use typed JSON payloads for the current prot
 | EVC inspection duration, hours, travel speed, winding factor | `backend/src/config/timelines.ts` | Prototype assumption |
 | Reminder offsets and escalation matrix | `backend/src/config/alerts.ts` | Placeholder pending APH |
 | Route definitions, application-type mapping, return targets and categories | `backend/src/config/routes.ts` | Placeholder pending APH |
-| Stage-level SLA and ageing buckets | Planned for Part 3 | Not built |
+| Stage-level SLA days, approaching threshold and ageing buckets | `backend/src/config/sla-config.ts` | Placeholder pending APH |
 | Renewal validity periods | Planned for Part 4 | Not built |
 
 Every value above is a product placeholder, not an official AICTE rule. See `docs/assumptions.md` for the current values.
@@ -95,7 +95,7 @@ Every value above is a product placeholder, not an official AICTE rule. See `doc
 4. When `ALLOW_DEMO_HEADER_ROLE=false`, an `x-role` header without a JWT is rejected. Step 0 verified HTTP 401.
 5. Notification and escalation reads filter by role and region. Institution users see only their own records; regional officers see their region; `CHIEF` sees all.
 6. `services/access.ts` centralises application scope: `CHIEF` and `ALL` regions are unrestricted, regional `OFFICER`/`COMMITTEE` users see their own region plus legacy `ALL`/unset regions, and `INSTITUTION` users see only their own institution.
-7. Application list/detail/mutations, document reads and uploads, inspection listings and full ledger reads use that scope. `GET /ledger/:id/verify` stays public and returns validity metadata only; `POST /ledger/:id/tamper` is `CHIEF`-only.
+7. Application list/detail/mutations, document reads and uploads, inspection listings, full ledger reads and `/dashboards` endpoints use that scope. Regional officers see their region; bureau officers, committee and head office follow the same existing rules; institutions see only their own applications. `GET /ledger/:id/verify` stays public and returns validity metadata only; `POST /ledger/:id/tamper` is `CHIEF`-only.
 8. The frontend falls back to local demo data only when the backend is unreachable. HTTP errors are surfaced to the user and never converted into demo records.
 
 ## 6. Workflow and Human Control
@@ -108,13 +108,21 @@ Routes are derived at response time from application type, with a status overrid
 - `SCRUTINY_EVC` (`NEW`): `SUBMITTED -> SCRUTINY -> EVC_REQUIRED -> EVC_DONE -> DECISION`.
 - `EVC_SAC_SHC` (`APPEAL`; also rejected/appeal statuses): `SUBMITTED -> SCRUTINY -> EVC_REQUIRED -> EVC_DONE -> DECISION -> APPEAL_SHC -> APPEAL_SAC`. The existing state-machine order is SHC then SAC even though the PS short name lists SAC/SHC.
 - `ONLY_EVC` (`INTAKE_CHANGE`): `SUBMITTED -> EVC_REQUIRED -> EVC_DONE -> DECISION`.
-- These route stage lists are canonical; future stage-SLA configuration must import them rather than duplicating stage names.
+- These route stage lists are canonical. Part 3 stage-SLA configuration imports them rather than retyping stage names.
 - `POST /applications/:id/advance` may omit `to`. The configured automatic next stage is used for `SUBMITTED`, `DEFICIENT`, `SCRUTINY` and `EVC_DONE`. `EVC_REQUIRED`, `DECISION` and appeal stages always require a human-selected target.
 - The advance handler rejects a globally valid transition that is not part of the selected route.
 - `POST /applications/:id/return` allows only configured earlier targets, requires a category and a recorded reason of at least 10 characters, and is limited to in-scope `OFFICER`/`CHIEF` users.
 - Returns and decisions create standard notices. Notices create in-app notifications and `NOTICE_ISSUED` ledger entries; returns also create `APPLICATION_RETURNED`.
 - `GET /applications/:id/case-summary` is scoped and read-only. It assembles route, timeline, returns, sign-off, documents, compliance, inspections, notices and ledger verification without mutating state.
 - All route and stage settings are placeholders pending the APH.
+
+## 6b. Pendency dashboards and EVC board
+
+- `GET /dashboards/pendency` and `GET /dashboards/evc-board` require a JWT and apply `canReadApplication` scope.
+- Role views: regional officer, bureau officer, committee, head office, institution (own applications).
+- Pendency rows include ageDays, daysLeft, On time / Approaching / Overdue and ageing buckets. Filters: region, stage, status.
+- EVC board buckets: awaiting, scheduled, completed, delayed. Delayed report dates feed the alert engine.
+- Stage SLA days, approaching threshold and ageing bucket edges are placeholders pending APH and are shown on the UI.
 
 ## 7. Alert Flow
 
@@ -130,6 +138,7 @@ Daily cron -> build open alert items -> apply reminder offsets / escalation matr
 - Reminder offsets and escalation levels are keyed by `${eventId}:${kind}:${level}`.
 - The database unique key makes overlapping cron runs safe.
 - Email modes are `log` (default), `ethereal` (test preview) and `live` (SMTP).
+- Approaching or overdue stage timelines and delayed EVC report dates feed this same engine and write `ALERT_REMINDER` / `ALERT_ESCALATION` ledger entries. Duplicate cron runs are skipped.
 - `ALERT_EMAIL_OVERRIDE` can redirect all demo alert mail to one test inbox while the original role recipient remains in the alert log.
 - Step 0 verified 37 dispatches, 0 failures and 37 duplicates skipped on the second run.
 
@@ -145,8 +154,8 @@ The ledger endpoint recomputes the chain and reports the first broken block if t
 
 ## 9. Current Gaps
 
-- Route mapping, stage order, automatic progression, return targets and notice wording are placeholders pending APH policy approval.
-- Part 3 dashboards and stage SLA configuration are not built.
+- Route mapping, stage order, automatic progression, return targets, notice wording and stage SLA days are placeholders pending APH policy approval.
+- Part 3 pendency dashboards and the EVC board are built with placeholder timelines pending APH.
 - Part 4 undertakings and renewals are not built.
 - Part 6 reports, audit search and expanded demo data are not built.
 - Live SMTP was not verified.

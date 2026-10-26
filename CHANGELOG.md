@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-10-26 - Part 3: pendency dashboards and EVC board
+
+### Added
+
+- Route-derived placeholder stage SLA config (`sla-config.ts`) with age in days, days left, On time / Approaching / Overdue status, and ageing buckets.
+- Role-scoped `/dashboards/pendency` and `/dashboards/evc-board` endpoints with counts by stage and region, workload, bottlenecks and a filterable pending-cases list.
+- Labelled demo data top-up (`APP-DEMO-*`) for missing stages and a delayed EVC case, copied into Postgres seed.
+- Delayed EVC cases and approaching/overdue stage timelines feed the existing alert engine and write ledger entries without duplicate cron dispatches.
+- Frontend pendency dashboard and EVC board pages using the authenticated API helper, status chips, filters, safeguard notice and a visible "placeholder timelines pending APH" note.
+
+### Changed
+
+- Login lands each role on the matching dashboard view. Dashboard reads are scoped by the same role/region rules as the rest of the API.
+
+### Verified
+
+- Backend typecheck and tests are recorded in the README after this commit.
+
 ## 2026-10-26 - Part 2b: four PS approval routes
 
 ### Added

@@ -1164,6 +1164,180 @@ export class InMemoryStore implements IStore {
     this.inspections.set(seededAssignment.id, seededAssignment);
     app3.scheduledInspection = seededAssignment;
     this.applications.set(app3Id, app3);
+
+    // -------------------------------------------------------------
+    // Part 3: Idempotent demo data top-up for missing statuses
+    // Ensures SCRUTINY, REJECTED, APPEAL_SHC, APPEAL_SAC appear covered
+    // -------------------------------------------------------------
+    // APP-DEMO-SCRUTINY
+    if (!this.applications.has('APP-DEMO-SCRUTINY')) {
+      const appScr = {
+        id: 'APP-DEMO-SCRUTINY',
+        institutionName: 'Demo Scrutiny Institute',
+        type: 'NEW' as ApplicationType,
+        status: 'SCRUTINY' as Status,
+        createdAt: new Date(now - 5 * day).toISOString(),
+        slaDueAt: new Date(now + 16 * day).toISOString(),
+        extracted: { landAreaSqm: 10000, leaseEndDate: '2050-01-01', fireNocExpiry: '2029-01-01' },
+        deficiencies: [],
+        locked: false,
+        lat: 28.6,
+        lng: 77.2,
+        domain: 'CSE' as Domain,
+        region: 'NORTH' as Region,
+      };
+      this.applications.set(appScr.id, appScr);
+      this.ledger.set(appScr.id, [
+        createLedgerEntry({
+          id: `LEDGER-${appScr.id}-1`,
+          applicationId: appScr.id,
+          eventType: 'APPLICATION_CREATED',
+          actor: 'institution',
+          payload: { institutionName: appScr.institutionName, type: appScr.type },
+          timestamp: appScr.createdAt,
+          prevHash: GENESIS_HASH,
+        }),
+      ]);
+    }
+    // APP-DEMO-REJECTED
+    if (!this.applications.has('APP-DEMO-REJECTED')) {
+      const appRej = {
+        id: 'APP-DEMO-REJECTED',
+        institutionName: 'Demo Rejected Institute',
+        type: 'NEW' as ApplicationType,
+        status: 'REJECTED' as Status,
+        createdAt: new Date(now - 30 * day).toISOString(),
+        slaDueAt: new Date(now - 9 * day).toISOString(),
+        extracted: { landAreaSqm: 8000, leaseEndDate: '2049-01-01', fireNocExpiry: '2028-01-01' },
+        deficiencies: [],
+        locked: false,
+        lat: 19.1,
+        lng: 72.9,
+        domain: 'MECHANICAL' as Domain,
+        region: 'WEST' as Region,
+      };
+      this.applications.set(appRej.id, appRej);
+      this.ledger.set(appRej.id, [
+        createLedgerEntry({
+          id: `LEDGER-${appRej.id}-1`,
+          applicationId: appRej.id,
+          eventType: 'APPLICATION_CREATED',
+          actor: 'institution',
+          payload: { institutionName: appRej.institutionName, type: appRej.type },
+          timestamp: appRej.createdAt,
+          prevHash: GENESIS_HASH,
+        }),
+      ]);
+    }
+    // APP-DEMO-APPEAL-SHC
+    if (!this.applications.has('APP-DEMO-APPEAL-SHC')) {
+      const appShc = {
+        id: 'APP-DEMO-APPEAL-SHC',
+        institutionName: 'Demo Appeal SHC Institute',
+        type: 'APPEAL' as ApplicationType,
+        status: 'APPEAL_SHC' as Status,
+        createdAt: new Date(now - 12 * day).toISOString(),
+        slaDueAt: new Date(now + 9 * day).toISOString(),
+        extracted: { landAreaSqm: 9000, leaseEndDate: '2051-01-01', fireNocExpiry: '2029-06-01' },
+        deficiencies: [],
+        locked: false,
+        lat: 13.0,
+        lng: 80.2,
+        domain: 'CIVIL' as Domain,
+        region: 'SOUTH' as Region,
+      };
+      this.applications.set(appShc.id, appShc);
+      this.ledger.set(appShc.id, [
+        createLedgerEntry({
+          id: `LEDGER-${appShc.id}-1`,
+          applicationId: appShc.id,
+          eventType: 'APPLICATION_CREATED',
+          actor: 'institution',
+          payload: { institutionName: appShc.institutionName, type: appShc.type },
+          timestamp: appShc.createdAt,
+          prevHash: GENESIS_HASH,
+        }),
+      ]);
+    }
+    // APP-DEMO-APPEAL-SAC
+    if (!this.applications.has('APP-DEMO-APPEAL-SAC')) {
+      const appSac = {
+        id: 'APP-DEMO-APPEAL-SAC',
+        institutionName: 'Demo Appeal SAC Institute',
+        type: 'APPEAL' as ApplicationType,
+        status: 'APPEAL_SAC' as Status,
+        createdAt: new Date(now - 15 * day).toISOString(),
+        slaDueAt: new Date(now + 6 * day).toISOString(),
+        extracted: { landAreaSqm: 9500, leaseEndDate: '2052-01-01', fireNocExpiry: '2030-01-01' },
+        deficiencies: [],
+        locked: false,
+        lat: 22.6,
+        lng: 88.4,
+        domain: 'ELECTRICAL' as Domain,
+        region: 'EAST' as Region,
+      };
+      this.applications.set(appSac.id, appSac);
+      this.ledger.set(appSac.id, [
+        createLedgerEntry({
+          id: `LEDGER-${appSac.id}-1`,
+          applicationId: appSac.id,
+          eventType: 'APPLICATION_CREATED',
+          actor: 'institution',
+          payload: { institutionName: appSac.institutionName, type: appSac.type },
+          timestamp: appSac.createdAt,
+          prevHash: GENESIS_HASH,
+        }),
+      ]);
+    }
+    // APP-DEMO-EVC-DELAYED — labelled demo data for delayed EVC board + alerts
+    if (!this.applications.has('APP-DEMO-EVC-DELAYED')) {
+      const appDel: Application = {
+        id: 'APP-DEMO-EVC-DELAYED',
+        institutionName: 'Demo Delayed EVC Institute',
+        type: 'NEW',
+        status: 'EVC_REQUIRED',
+        createdAt: new Date(now - 25 * day).toISOString(),
+        slaDueAt: new Date(now - 4 * day).toISOString(),
+        extracted: { landAreaSqm: 11000, leaseEndDate: '2050-06-01', fireNocExpiry: '2029-03-01' },
+        deficiencies: [],
+        locked: false,
+        lat: 19.2,
+        lng: 72.85,
+        domain: 'CSE',
+        region: 'WEST',
+      };
+      this.applications.set(appDel.id, appDel);
+      this.ledger.set(appDel.id, [
+        createLedgerEntry({
+          id: `LEDGER-${appDel.id}-1`,
+          applicationId: appDel.id,
+          eventType: 'APPLICATION_CREATED',
+          actor: 'institution',
+          payload: { institutionName: appDel.institutionName, type: appDel.type, demo: true },
+          timestamp: appDel.createdAt,
+          prevHash: GENESIS_HASH,
+        }),
+      ]);
+      const delayedAssignment: InspectionAssignment = {
+        id: 'INSP-DEMO-DELAYED',
+        applicationId: appDel.id,
+        institutionName: appDel.institutionName,
+        domain: 'CSE',
+        lat: appDel.lat ?? 19.2,
+        lng: appDel.lng ?? 72.85,
+        scheduledDate: new Date(now - 10 * day).toISOString().slice(0, 10),
+        inspectors: [
+          { id: 'INS-002', name: 'Dr. Sunita Patil', domain: 'CSE', homeCity: 'Pune, MH' },
+          { id: 'INS-003', name: 'Prof. Amit Verma', domain: 'CSE', homeCity: 'Nashik, MH' },
+        ],
+        status: 'SCHEDULED',
+        source: 'fallback',
+        reportDueAt: new Date(now - 5 * day).toISOString().slice(0, 10),
+      };
+      this.inspections.set(delayedAssignment.id, delayedAssignment);
+      appDel.scheduledInspection = delayedAssignment;
+      this.applications.set(appDel.id, appDel);
+    }
   }
 }
 

@@ -53,7 +53,10 @@ describe('Postgres persistence (Drizzle)', () => {
   });
 
   it('applies migrations and seeds every repository collection', async () => {
-    expect((await testDb.store.listApplications()).length).toBe(15);
+    const seededApps = await testDb.store.listApplications();
+    expect(seededApps.length).toBeGreaterThanOrEqual(19);
+    expect(seededApps.some((app) => app.id === 'APP-DEMO-SCRUTINY')).toBe(true);
+    expect(seededApps.some((app) => app.id === 'APP-DEMO-EVC-DELAYED')).toBe(true);
     expect((await testDb.store.listUsers()).length).toBe(7);
     expect((await testDb.store.getLedger('APP-2024-002')).length).toBeGreaterThan(1);
     expect((await testDb.store.listNotifications()).length).toBe(2);

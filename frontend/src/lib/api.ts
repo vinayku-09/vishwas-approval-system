@@ -31,6 +31,10 @@ import {
   Status,
   UserRole,
   VerificationResult,
+  PendencyDashboard,
+  PendencyStatus,
+  EvcBoard,
+  DashboardRoleView,
 } from './types';
 import {
   INITIAL_MOCK_APPLICATIONS,
@@ -44,7 +48,7 @@ import {
   INITIAL_MOCK_ESCALATIONS,
 } from './mock';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 let localApplications: Application[] = [...INITIAL_MOCK_APPLICATIONS];
 let localDocuments: Record<string, DocumentMetadata[]> = JSON.parse(JSON.stringify(INITIAL_MOCK_DOCUMENTS));
@@ -1148,4 +1152,77 @@ export async function submitEvcReport(
   }
 
   return { data: { application: app, report }, isDemo: true };
+}
+
+export function dashboardRoleView(user: AuthUser | null): DashboardRoleView {
+  if (!user) return 'institution';
+  if (user.role === 'CHIEF') return 'head_office';
+  if (user.role === 'COMMITTEE') return 'committee';
+  if (user.role === 'INSTITUTION') return 'institution';
+  if (user.role === 'OFFICER' && user.region && user.region !== 'ALL') return 'regional_officer';
+  return 'bureau_officer';
+}
+
+export function dashboardHomePath(user: AuthUser | null): string {
+  const view = dashboardRoleView(user);
+  if (view === 'committee') return '/evc-board';
+  if (view === 'institution') return '/dashboard';
+  return '/dashboard';
+}
+
+const DEMO_PENDENCY: PendencyDashboard = {
+  note: 'Placeholder timelines pending APH. Backend unreachable — showing empty demo dashboard.',
+  generatedAt: new Date(0).toISOString(),
+  countsByStage: {},
+  countsByRegion: {},
+  ageingBuckets: {},
+  workloadPerOfficer: {},
+  workloadPerCommittee: {},
+  bottleneckStages: [],
+  pendingCases: [],
+  total: 0,
+  roleView: 'institution',
+};
+
+const DEMO_EVC_BOARD: EvcBoard = {
+  note: 'Placeholder timelines pending APH. Backend unreachable — showing empty demo EVC board.',
+  generatedAt: new Date(0).toISOString(),
+  awaitingEvc: 0,
+  scheduled: 0,
+  completed: 0,
+  delayed: 0,
+  items: [],
+  roleView: 'institution',
+};
+
+export async function getPendencyDashboard(filters?: {
+  region?: string;
+  stage?: string;
+  status?: PendencyStatus | '';
+  officerId?: string;
+}): Promise<{ data: PendencyDashboard; isDemo: boolean }> {
+  const params = new URLSearchParams();
+  if (filters?.region && filters.region !== 'ALL') params.set('region', filters.region);
+  if (filters?.stage) params.set('stage', filters.stage);
+  if (filters?.status) params.set('status', filters.status);
+  if (filters?.officerId) params.set('officerId', filters.officerId);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const res = await request<PendencyDashboard>(`/dashboards/pendency${query}`);
+  if (res.isDemo) {
+    return { data: { ...DEMO_PENDENCY, roleView: dashboardRoleView(getStoredUser()) }, isDemo: true };
+  }
+  return { data: res.data, isDemo: false };
+}
+
+export async function getEvcBoard(filters?: {
+  region?: string;
+}): Promise<{ data: EvcBoard; isDemo: boolean }> {
+  const params = new URLSearchParams();
+  if (filters?.region && filters.region !== 'ALL') params.set('region', filters.region);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const res = await request<EvcBoard>(`/dashboards/evc-board${query}`);
+  if (res.isDemo) {
+    return { data: { ...DEMO_EVC_BOARD, roleView: dashboardRoleView(getStoredUser()) }, isDemo: true };
+  }
+  return { data: res.data, isDemo: false };
 }

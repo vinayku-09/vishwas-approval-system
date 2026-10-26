@@ -651,6 +651,10 @@ export class PostgresStore implements IStore {
   }
 
   async seed(): Promise<void> {
+    // Demo data: InMemoryStore.seed() includes the Part 3 labelled idempotent
+    // top-up (APP-DEMO-* pendency/EVC records). Copying that source loads the
+    // same labelled demo set into Postgres. Re-running this seed is destructive
+    // then reloads those labelled demo records.
     const source = new InMemoryStore();
 
     await this.db.delete(schema.alertLogsTable);

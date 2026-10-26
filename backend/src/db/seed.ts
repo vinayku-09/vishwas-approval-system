@@ -11,6 +11,7 @@ async function main(): Promise<void> {
   try {
     await store.seed();
     console.log('[seed] Seeded applications, users, inspections, ledger and notifications.');
+    console.log('[seed] Includes labelled demo data top-up (APP-DEMO-* pendency and delayed EVC).');
   } finally {
     await store.close();
   }

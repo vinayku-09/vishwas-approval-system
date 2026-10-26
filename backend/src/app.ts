@@ -9,6 +9,7 @@ import { ledgerRouter } from './routes/ledger.js';
 import { schedulingRouter } from './routes/scheduling.js';
 import { authRouter } from './routes/auth.js';
 import { escalationsRouter } from './routes/escalations.js';
+import { dashboardsRouter } from './routes/dashboards.js';
 import { getMailHealth } from './services/mailer.js';
 import { initializeStore } from './db/index.js';
 
@@ -37,7 +38,7 @@ app.get('/health', (c) => {
     status: 'ok',
     timestamp: new Date().toISOString(),
     service: 'vishwas-approval-backend',
-    version: '1.3.0',
+    version: '1.4.0',
     mail: getMailHealth(),
   });
 });
@@ -52,6 +53,7 @@ app.route('/cron', cronRouter);
 app.route('/notifications', notificationsRouter);
 app.route('/escalations', escalationsRouter);
 app.route('/ledger', ledgerRouter);
+app.route('/dashboards', dashboardsRouter);
 
 // Global 404 handler
 app.notFound((c) => {

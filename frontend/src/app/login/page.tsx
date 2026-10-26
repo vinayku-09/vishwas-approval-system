@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import {
   clearSession,
+  dashboardHomePath,
   DEMO_ACCOUNTS,
   getStoredUser,
   login,
@@ -24,13 +25,6 @@ import {
 import { AuthUser } from '../../lib/types';
 
 type DemoRole = keyof typeof DEMO_ACCOUNTS;
-
-const ROLE_HOME: Record<string, string> = {
-  INSTITUTION: '/institution',
-  OFFICER: '/officer',
-  COMMITTEE: '/committee',
-  CHIEF: '/alerts',
-};
 
 const ROLE_ICONS: Record<DemoRole, React.ComponentType<{ className?: string }>> = {
   institution: Building2,
@@ -69,12 +63,12 @@ export default function LoginPage() {
     []
   );
 
-  const goAfterLogin = (role: string) => {
+  const goAfterLogin = (user: AuthUser) => {
     if (nextPath) {
       router.push(nextPath);
       return;
     }
-    router.push(ROLE_HOME[role] || '/');
+    router.push(dashboardHomePath(user));
   };
 
   const authenticate = async (
@@ -93,7 +87,7 @@ export default function LoginPage() {
       return;
     }
 
-    goAfterLogin(result.data.user.role);
+    goAfterLogin(result.data.user);
   };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -148,7 +142,7 @@ export default function LoginPage() {
               <div className="flex flex-wrap gap-2 mt-3">
                 <button
                   type="button"
-                  onClick={() => router.push(ROLE_HOME[currentUser.role] || '/')}
+                  onClick={() => router.push(dashboardHomePath(currentUser))}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-xs font-bold text-white"
                 >
                   Continue <ArrowRight className="w-3 h-3" />

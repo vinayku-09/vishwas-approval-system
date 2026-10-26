@@ -459,3 +459,61 @@ export interface SlaInfo {
   remainingDays: number;
   elapsedPercent: number;
 }
+
+export type PendencyStatus = 'On time' | 'Approaching' | 'Overdue';
+
+export type DashboardRoleView =
+  | 'regional_officer'
+  | 'bureau_officer'
+  | 'committee'
+  | 'head_office'
+  | 'institution';
+
+export interface PendingCaseRow {
+  applicationId: string;
+  institutionName: string;
+  status: Status;
+  region?: string;
+  routeId: string;
+  currentStage: string;
+  ageDays: number;
+  daysLeft: number;
+  pendencyStatus: PendencyStatus | string;
+  ageingBucket: string;
+}
+
+export interface PendencyDashboard {
+  note: string;
+  generatedAt: string;
+  countsByStage: Record<string, number>;
+  countsByRegion: Record<string, number>;
+  ageingBuckets: Record<string, number>;
+  workloadPerOfficer: Record<string, number>;
+  workloadPerCommittee: Record<string, number>;
+  bottleneckStages: Array<{ stage: string; count: number }>;
+  pendingCases: PendingCaseRow[];
+  total: number;
+  roleView: DashboardRoleView;
+}
+
+export interface EvcBoardItem {
+  applicationId: string;
+  institutionName: string;
+  status: Status;
+  region?: string;
+  scheduledDate?: string;
+  reportDueAt?: string;
+  daysOverdue: number;
+  delayed: boolean;
+}
+
+export interface EvcBoard {
+  note: string;
+  generatedAt: string;
+  awaitingEvc: number;
+  scheduled: number;
+  completed: number;
+  delayed: number;
+  items: EvcBoardItem[];
+  roleView: DashboardRoleView;
+}

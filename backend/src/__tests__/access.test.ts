@@ -155,14 +155,15 @@ describe('Part 2a — role/region application scoping', () => {
       headers: bearer(await officerAllToken()),
     });
     expect(allIndia.status).toBe(200);
-    expect(((await allIndia.json()) as Application[]).length).toBe(15);
+    const allIndiaApps = (await allIndia.json()) as Application[];
+    expect(allIndiaApps.length).toBe((await store.listApplications()).length);
 
     const chief = await app.request('/applications', {
       method: 'GET',
       headers: bearer(await chiefToken()),
     });
     expect(chief.status).toBe(200);
-    expect(((await chief.json()) as Application[]).length).toBe(15);
+    expect(((await chief.json()) as Application[]).length).toBe(allIndiaApps.length);
   });
 
   it('scopes committee members by region, not just inspector assignment', async () => {
@@ -265,7 +266,10 @@ describe('Part 2a — role/region application scoping', () => {
     expect(west.status).toBe(200);
     const westInspections = (await west.json()) as InspectionAssignment[];
     expect(westInspections.length).toBeGreaterThan(0);
-    expect(westInspections.every((i) => i.applicationId === 'APP-2024-003')).toBe(true);
+    const westApplications = new Set(
+      (await store.listApplications()).filter((application) => application.region === 'WEST').map((application) => application.id)
+    );
+    expect(westInspections.every((inspection) => westApplications.has(inspection.applicationId))).toBe(true);
 
     const all = await app.request('/inspections', {
       method: 'GET',

@@ -34,14 +34,14 @@ Last verified locally on **2026-10-26**. No deployment has been performed.
 - Daily document-expiry monitor with warning tiers and application locking.
 - Config-driven reminder and escalation engine, in-app notifications, email adapter and ledger entries.
 - TypeScript vehicle-routing fallback for EVC inspection scheduling with conflict-of-interest exclusion.
-- Next.js portal pages for login, institution, officer, committee, alerts and public ledger verification.
+- Next.js portal pages for login, institution, officer, committee, alerts, pendency dashboards, EVC board and public ledger verification.
 - Ethereal alert email delivery verified with preview URLs; live SMTP credentials are not verified.
 
 ### Built with mock or placeholder data
 
 - AI document extraction is a deterministic mock unless `AI_GATEWAY_API_KEY` is configured. No live model extraction was run in Step 0.
 - The Python OR-Tools optimizer exists in `optimizer/api/optimize.py` but was not run or deployed; the tested path is the TypeScript fallback.
-- The 21-day SLA windows, 80% warning threshold, 90/60/30-day expiry tiers, 30/15/7/1 reminder offsets and escalation delays are placeholders pending the APH.
+- The 21-day SLA windows, 80% warning threshold, stage SLA days, approaching threshold, ageing bucket edges, 90/60/30-day expiry tiers, 30/15/7/1 reminder offsets and escalation delays are placeholders pending the APH.
 - Approval routes, stage order, automatic-next-stage rules, return targets and return categories are placeholders pending the APH. There are no official AICTE route mappings in this prototype.
 - The demo dataset is simulated and intentionally contains no real personal data.
 - Email delivery was verified with Ethereal; Gmail/live SMTP was rejected as configured and remains unverified.
@@ -49,7 +49,6 @@ Last verified locally on **2026-10-26**. No deployment has been performed.
 
 ### Not built yet / roadmap
 
-- **Part 3:** stage SLA config, pendency dashboards, ageing buckets, workload and bottleneck views, EVC status board.
 - **Part 4:** undertakings, evidence verification, renewals and unlock-after-renewal.
 - **Part 6:** six reports with CSV export, searchable audit view and expanded demo seed.
 - Authenticity checks, RAG, fraud map and QR certificates remain out of scope until Parts 2, 3, 4 and 6 are complete.
@@ -100,6 +99,12 @@ Approval routes are resolved from application type at response time using `backe
 - `GET /applications/:id/case-summary` returns a scoped, read-only electronic case summary. It does not mutate state.
 - All routes, stage rules, return targets and notice text are placeholders pending the APH.
 
+## Part 3: Pendency dashboards and EVC board
+
+Stage SLA days are derived from the four PS route stage lists in `backend/src/config/routes.ts`. Dashboards compute age in days, days left and On time / Approaching / Overdue using placeholder values pending the APH. `/dashboards/pendency` and `/dashboards/evc-board` are authenticated and scoped: regional officers see their region, bureau officers / committee / head office follow existing scope rules, and institutions see only their own applications.
+
+The EVC board buckets cases as awaiting, scheduled, completed or delayed. Delayed report dates and approaching/overdue stage timelines use the existing alert engine; a second cron run creates no duplicates. Frontend `/dashboard` and `/evc-board` call the authenticated API helper, show backend errors as errors, and display the safeguard notice plus a visible "placeholder timelines pending APH" note.
+
 ## Demo Users
 
 All demo records are simulated. Use the one-click seeded demo buttons on `/login`; the non-production demo password is shown on the login screen.
@@ -138,6 +143,8 @@ Local URLs:
 - Ledger verification: `GET http://localhost:4000/ledger/APP-2024-001/verify`
 - Case summary: `GET http://localhost:4000/applications/APP-2024-001/case-summary` (bearer token)
 - Return/revert: `POST http://localhost:4000/applications/APP-2024-005/return` (officer/CHIEF bearer token)
+- Pendency dashboard: `GET http://localhost:4000/dashboards/pendency` (bearer token)
+- EVC board: `GET http://localhost:4000/dashboards/evc-board` (bearer token)
 
 ### Postgres / Neon
 
@@ -192,8 +199,8 @@ Automated actions support the approval process and do not replace decisions of t
 | Area | Key requirement | Status | Notes |
 | :--- | :--- | :--- | :--- |
 | A | Routing and return/revert | Built with placeholders | The four PS routes, canonical stage sequences, route-aware progression, guarded return targets/categories, standard notices and read-only case summary exist. Route policy approval is pending the APH. |
-| B | Pendency dashboards | Partial foundation | SLA fields, expiry alerts and escalation engine exist; stage SLA config, dashboards, ageing buckets and bottleneck views are Part 3. |
-| C | Visibility and EVC status | Partial | EVC scheduling, scoped notifications and case summary exist; EVC status board and delayed-case visibility are Part 3. |
+| B | Pendency dashboards | Built with placeholders | Route-derived stage SLA config, role-scoped dashboards, ageing buckets, workload, bottlenecks and On time / Approaching / Overdue status exist. Values are placeholders pending the APH. |
+| C | Visibility and EVC status | Built with placeholders | EVC board buckets (awaiting, scheduled, completed, delayed), scoped reads, delayed-case alerts and ledger writes exist. Timelines are placeholders pending the APH. |
 | D | Undertakings | Not built | Part 4 will add conditions, evidence, verification and overdue escalation. |
 | E | Renewals | Not built | Part 4 will add renewal submission, verification, validity update and application unlock. |
 | F | Reports and demo data | Not built | Part 6 will add six filtered reports, CSV export, searchable audit view and a larger demo seed. |

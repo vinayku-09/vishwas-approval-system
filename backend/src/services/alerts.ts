@@ -29,6 +29,7 @@ import {
   UserRole,
 } from '../types.js';
 import { buildAlertEmail, describeAlertReason, sendAlertEmail } from './mailer.js';
+import { getApplicationPendency } from './pendency.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -37,9 +38,13 @@ const OPEN_APPLICATION_STATUSES = new Set([
   'SCRUTINY',
   'DEFICIENT',
   'EVC_REQUIRED',
+  'EVC_DONE',
+  'DECISION',
+  'APPEAL_SHC',
+  'APPEAL_SAC',
 ]);
 
-const PENDENCY_STATUSES = new Set(['SUBMITTED', 'SCRUTINY', 'DEFICIENT', 'EVC_REQUIRED']);
+const PENDENCY_STATUSES = new Set(['SUBMITTED', 'SCRUTINY', 'DEFICIENT', 'EVC_REQUIRED', 'EVC_DONE', 'DECISION', 'APPEAL_SHC', 'APPEAL_SAC']);
 
 export interface AlertRunResult {
   success: boolean;
@@ -97,17 +102,35 @@ export async function buildAlertItems(now: Date = new Date()): Promise<AlertItem
   for (const app of applications) {
     if (isClosed(app.status)) continue;
 
-    // 1. Application pendency (SLA due date)
-    if (PENDENCY_STATUSES.has(app.status) && app.slaDueAt) {
-      items.push({
-        eventId: `PENDENCY:${app.id}`,
-        applicationId: app.id,
-        eventType: 'PENDENCY',
-        dueDate: app.slaDueAt,
-        reason: describeAlertReason('PENDENCY'),
-        region: normalizeRegion(app.region),
-        institutionName: app.institutionName,
-      });
+    // 1. Application pendency (SLA due date) - use route-derived pendency
+    if (PENDENCY_STATUSES.has(app.status)) {
+      try {
+        const pendency = getApplicationPendency(app, now);
+        const dueDate = pendency.dueDate || app.slaDueAt;
+        if (dueDate && (pendency.status === 'Approaching' || pendency.status === 'Overdue')) {
+          items.push({
+            eventId: `PENDENCY:${app.id}`,
+            applicationId: app.id,
+            eventType: 'PENDENCY',
+            dueDate,
+            reason: describeAlertReason('PENDENCY') + ` (Stage: ${pendency.currentStage}, ${pendency.status})`,
+            region: normalizeRegion(app.region),
+            institutionName: app.institutionName,
+          });
+        }
+      } catch (e) {
+        if (app.slaDueAt) {
+          items.push({
+            eventId: `PENDENCY:${app.id}`,
+            applicationId: app.id,
+            eventType: 'PENDENCY',
+            dueDate: app.slaDueAt,
+            reason: describeAlertReason('PENDENCY'),
+            region: normalizeRegion(app.region),
+            institutionName: app.institutionName,
+          });
+        }
+      }
     }
 
     // 2. EVC inspection not yet scheduled
