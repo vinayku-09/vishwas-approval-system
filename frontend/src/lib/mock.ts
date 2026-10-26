@@ -8,6 +8,7 @@ import {
   Inspector,
   LedgerEntry,
   Notification,
+  Undertaking,
 } from './types';
 
 const now = Date.now();
@@ -452,6 +453,15 @@ export const INITIAL_MOCK_COMPLIANCE: Record<string, ComplianceDocument[]> = {
       daysRemaining: -45,
       lastCheckedAt: new Date().toISOString(),
     },
+    {
+      id: 'COMP-DEMO-EXPIRED',
+      applicationId: 'APP-2024-002',
+      docType: 'FIRE_NOC',
+      expiryDate: pastDays(10),
+      state: 'OVERDUE',
+      daysRemaining: -10,
+      lastCheckedAt: new Date().toISOString(),
+    },
   ],
   'APP-2024-003': [
     {
@@ -680,3 +690,115 @@ export const INITIAL_MOCK_INSPECTIONS: InspectionAssignment[] = [
     source: 'fallback',
   },
 ];
+
+export const INITIAL_MOCK_UNDERTAKINGS: Undertaking[] = [
+  {
+    id: 'UT-DEMO-PENDING',
+    applicationId: 'APP-2024-001',
+    conditionText: 'Demo: Submit fire safety equipment maintenance certificate and proof of annual inspection.',
+    dueDate: inDays(20),
+    status: 'PENDING',
+    createdBy: 'officer.north@aicte.gov.in',
+    createdAt: new Date(now - 3 * day).toISOString(),
+    updatedAt: new Date(now - 3 * day).toISOString(),
+    evidence: [],
+    verifications: [],
+  },
+  {
+    id: 'UT-DEMO-SUBMITTED',
+    applicationId: 'APP-2024-002',
+    conditionText: 'Demo: Submit revised building accessibility compliance affidavit for differently-abled students.',
+    dueDate: inDays(10),
+    status: 'SUBMITTED',
+    createdBy: 'officer.west@aicte.gov.in',
+    createdAt: new Date(now - 4 * day).toISOString(),
+    updatedAt: new Date(now - 2 * day).toISOString(),
+    evidence: [
+      {
+        id: 'EVD-DEMO-01',
+        undertakingId: 'UT-DEMO-SUBMITTED',
+        fileName: 'accessibility_affidavit_signed.pdf',
+        fileHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        storageRef: '/uploads/accessibility_affidavit_signed.pdf',
+        submittedBy: 'kaveri.poly@aicte.gov.in',
+        submittedAt: new Date(now - 2 * day).toISOString(),
+      },
+    ],
+    verifications: [],
+  },
+  {
+    id: 'UT-DEMO-VERIFIED',
+    applicationId: 'APP-2024-003',
+    conditionText: 'Demo: Submit proof of upgraded laboratory safety exhaust systems.',
+    dueDate: inDays(15),
+    status: 'VERIFIED',
+    createdBy: 'officer.west@aicte.gov.in',
+    createdAt: new Date(now - 7 * day).toISOString(),
+    updatedAt: new Date(now - 3 * day).toISOString(),
+    evidence: [
+      {
+        id: 'EVD-DEMO-02',
+        undertakingId: 'UT-DEMO-VERIFIED',
+        fileName: 'lab_safety_exhaust_installation_proof.pdf',
+        fileHash: '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8',
+        storageRef: '/uploads/lab_safety_exhaust_installation_proof.pdf',
+        submittedBy: 'vjti@mumbai.edu',
+        submittedAt: new Date(now - 5 * day).toISOString(),
+      },
+    ],
+    verifications: [
+      {
+        id: 'VERIF-DEMO-01',
+        undertakingId: 'UT-DEMO-VERIFIED',
+        officer: 'officer.west@aicte.gov.in',
+        decision: 'VERIFIED',
+        remarks: 'Verified against engineering compliance specification. All norms fulfilled.',
+        timestamp: new Date(now - 3 * day).toISOString(),
+      },
+    ],
+  },
+  {
+    id: 'UT-DEMO-REJECTED',
+    applicationId: 'APP-2024-004',
+    conditionText: 'Demo: Submit certified structural stability report from empanelled engineer.',
+    dueDate: inDays(5),
+    status: 'REJECTED',
+    createdBy: 'officer.west@aicte.gov.in',
+    createdAt: new Date(now - 8 * day).toISOString(),
+    updatedAt: new Date(now - 1 * day).toISOString(),
+    evidence: [
+      {
+        id: 'EVD-DEMO-03',
+        undertakingId: 'UT-DEMO-REJECTED',
+        fileName: 'unverified_stability_draft.pdf',
+        fileHash: '4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a',
+        storageRef: '/uploads/unverified_stability_draft.pdf',
+        submittedBy: 'kaveri.poly@aicte.gov.in',
+        submittedAt: new Date(now - 4 * day).toISOString(),
+      },
+    ],
+    verifications: [
+      {
+        id: 'VERIF-DEMO-02',
+        undertakingId: 'UT-DEMO-REJECTED',
+        officer: 'officer.west@aicte.gov.in',
+        decision: 'REJECTED',
+        remarks: 'Report is missing engineer registration seal and structural load calculation sheet.',
+        timestamp: new Date(now - 1 * day).toISOString(),
+      },
+    ],
+  },
+  {
+    id: 'UT-DEMO-OVERDUE',
+    applicationId: 'APP-DEMO-SCRUTINY',
+    conditionText: 'Demo: Submit faculty roster signed by university registrar.',
+    dueDate: pastDays(5),
+    status: 'OVERDUE',
+    createdBy: 'officer.west@aicte.gov.in',
+    createdAt: new Date(now - 20 * day).toISOString(),
+    updatedAt: new Date(now - 5 * day).toISOString(),
+    evidence: [],
+    verifications: [],
+  },
+];
+

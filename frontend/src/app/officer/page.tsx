@@ -34,6 +34,7 @@ import {
   ReturnCategory,
   SignoffDecision,
   Status,
+  VerificationQueueData,
 } from '../../lib/types';
 import {
   getApplications,
@@ -43,12 +44,16 @@ import {
   recordSignoff,
   optimizeScheduling,
   scheduleEvc,
+  getVerificationQueue,
+  verifyUndertaking,
+  verifyRenewal,
 } from '../../lib/api';
 import { StatusBadge } from '../../components/StatusBadge';
 import { SlaBadge } from '../../components/SlaBadge';
 import { RouteSequence } from '../../components/RouteSequence';
 import { DeficiencyList } from '../../components/DeficiencyList';
 import { SafeguardNotice } from '../../components/SafeguardNotice';
+import { formatDate, shortHash } from '../../lib/utils';
 
 const NEXT_STATE_TRANSITIONS: Record<Status, Status[]> = {
   SUBMITTED: ['SCRUTINY', 'EVC_REQUIRED'],
@@ -93,13 +98,28 @@ export default function OfficerPage() {
   const [returnReason, setReturnReason] = useState('');
   const [returnSubmitting, setReturnSubmitting] = useState(false);
 
-  // Phase A: EVC Scheduling & Optimization state
-  const [activeTab, setActiveTab] = useState<'APPLICATIONS' | 'EVC_OPTIMIZER'>('APPLICATIONS');
+  // Phase A & D/E: Tab state
+  const [activeTab, setActiveTab] = useState<'APPLICATIONS' | 'EVC_OPTIMIZER' | 'VERIFICATION_QUEUE'>('APPLICATIONS');
   const [startDate, setStartDate] = useState('2026-11-01');
   const [endDate, setEndDate] = useState('2026-11-07');
   const [optimizing, setOptimizing] = useState(false);
   const [optimizationResult, setOptimizationResult] = useState<OptimizationResult | null>(null);
   const [schedulingAppId, setSchedulingAppId] = useState<string | null>(null);
+
+  // Part 4: Verification Queue state
+  const [queueData, setQueueData] = useState<VerificationQueueData>({ undertakings: [], renewals: [] });
+  const [queueLoading, setQueueLoading] = useState(false);
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
+
+  // Reject modal state
+  const [rejectModal, setRejectModal] = useState<{
+    type: 'UNDERTAKING' | 'RENEWAL';
+    id: string;
+    label: string;
+    institutionName?: string;
+  } | null>(null);
+  const [rejectRemarks, setRejectRemarks] = useState('');
+  const [rejectSubmitting, setRejectSubmitting] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -120,6 +140,25 @@ export default function OfficerPage() {
       setLoading(false);
     }
   };
+
+  const loadQueue = async () => {
+    setQueueLoading(true);
+    try {
+      const res = await getVerificationQueue();
+      setQueueData(res.data || { undertakings: [], renewals: [] });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Failed to load verification queue: ${msg}`, 'error');
+    } finally {
+      setQueueLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'VERIFICATION_QUEUE') {
+      loadQueue();
+    }
+  }, [activeTab]);
 
   const handleRunOptimizer = async () => {
     setOptimizing(true);
@@ -297,6 +336,83 @@ export default function OfficerPage() {
     }
   };
 
+  const handleVerifyUndertaking = async (undertakingId: string, decision: 'VERIFIED' | 'REJECTED', remarks?: string) => {
+    setVerifyingId(undertakingId);
+    try {
+      const res = await verifyUndertaking(
+        undertakingId,
+        decision,
+        remarks || (decision === 'VERIFIED' ? 'Verified by scrutiny officer' : '')
+      );
+      if (res.data?.success) {
+        showToast(
+          decision === 'VERIFIED'
+            ? 'Undertaking evidence verified and closed on ledger.'
+            : 'Undertaking evidence rejected and logged to ledger.',
+          'success'
+        );
+        await Promise.all([loadQueue(), loadData()]);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(msg, 'error');
+    } finally {
+      setVerifyingId(null);
+    }
+  };
+
+  const handleVerifyRenewal = async (complianceDocId: string, decision: 'VERIFIED' | 'REJECTED', remarks?: string) => {
+    setVerifyingId(complianceDocId);
+    try {
+      const res = await verifyRenewal(
+        complianceDocId,
+        decision,
+        remarks || (decision === 'VERIFIED' ? 'Statutory document renewal verified by regional officer' : '')
+      );
+      if (res.data?.success) {
+        const unlockMsg = res.data.unlocked ? ' Application compliance lock released!' : '';
+        showToast(
+          decision === 'VERIFIED'
+            ? `Document validity renewed successfully.${unlockMsg}`
+            : 'Document renewal rejected and logged to ledger.',
+          'success'
+        );
+        await Promise.all([loadQueue(), loadData()]);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(msg, 'error');
+    } finally {
+      setVerifyingId(null);
+    }
+  };
+
+  const handleConfirmReject = async () => {
+    if (!rejectModal) return;
+    if (!rejectRemarks.trim()) {
+      showToast('Remarks are mandatory when rejecting compliance evidence.', 'error');
+      return;
+    }
+    setRejectSubmitting(true);
+    try {
+      if (rejectModal.type === 'UNDERTAKING') {
+        await verifyUndertaking(rejectModal.id, 'REJECTED', rejectRemarks.trim());
+        showToast(`Undertaking ${rejectModal.id} rejected and recorded to audit ledger.`, 'success');
+      } else {
+        await verifyRenewal(rejectModal.id, 'REJECTED', rejectRemarks.trim());
+        showToast(`Document renewal ${rejectModal.id} rejected and recorded to audit ledger.`, 'success');
+      }
+      setRejectModal(null);
+      setRejectRemarks('');
+      await Promise.all([loadQueue(), loadData()]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Rejection refused: ${msg}`, 'error');
+    } finally {
+      setRejectSubmitting(false);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
 
@@ -380,6 +496,22 @@ export default function OfficerPage() {
           <span>Schedule Inspections (EVC Vehicle Routing)</span>
           <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-100 text-purple-900 font-extrabold ml-1">
             OR-Tools VRP
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('VERIFICATION_QUEUE')}
+          type="button"
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+            activeTab === 'VERIFICATION_QUEUE'
+              ? 'bg-emerald-900 text-white shadow'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <ShieldCheck className="w-4 h-4 text-emerald-400" />
+          <span>Verification Queue</span>
+          <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-900 font-extrabold ml-1">
+            {queueData.undertakings.length + queueData.renewals.length}
           </span>
         </button>
       </div>
@@ -885,6 +1017,228 @@ export default function OfficerPage() {
     </div>
   )}
 
+  {/* PART 4: REGIONAL VERIFICATION QUEUE PANEL */}
+  {activeTab === 'VERIFICATION_QUEUE' && (
+    <div className="space-y-6">
+      {/* Top Banner & Safeguard */}
+      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="space-y-1">
+            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-emerald-600" />
+              Regional Evidence & Renewals Verification Queue
+            </h2>
+            <p className="text-xs text-slate-600">
+              Scrutinize submitted undertaking proofs and renewed statutory documents. Verifications are immutably logged to the ledger.
+            </p>
+          </div>
+          <button
+            onClick={loadQueue}
+            type="button"
+            className="self-start sm:self-auto px-3.5 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-2 shadow-sm transition-colors"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${queueLoading ? 'animate-spin' : ''}`} />
+            <span>Refresh Verification Queue</span>
+          </button>
+        </div>
+
+        {/* Visible Safeguard Notice */}
+        <SafeguardNotice />
+      </div>
+
+      {/* SECTION 1: Undertakings Queue */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <ClipboardCheck className="w-4 h-4 text-gov-blue-800" />
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+              Conditional Undertakings Evidence Queue ({queueData.undertakings.length})
+            </h3>
+          </div>
+          <span className="text-[11px] text-slate-500">
+            Scoped by officer role & regional jurisdiction
+          </span>
+        </div>
+
+        {queueData.undertakings.length === 0 ? (
+          <div className="p-8 text-center text-xs text-slate-400">
+            No pending undertaking evidence submissions in your regional queue.
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {queueData.undertakings.map((u) => {
+              const latestEvidence = u.evidence && u.evidence.length > 0 ? u.evidence[u.evidence.length - 1] : null;
+              const isProcessing = verifyingId === u.id;
+              const isOverdue = u.status === 'OVERDUE';
+
+              return (
+                <div key={u.id} className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 hover:bg-slate-50/50">
+                  <div className="space-y-2 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs font-bold text-gov-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                        {u.applicationId}
+                      </span>
+                      <span className="font-mono text-xs text-slate-500">
+                        {u.id}
+                      </span>
+                      <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded ${
+                        isOverdue ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'
+                      }`}>
+                        {u.status}
+                      </span>
+                      <span className="text-xs text-slate-500 font-medium">
+                        Due: {formatDate(u.dueDate)}
+                      </span>
+                    </div>
+
+                    <p className="text-xs font-semibold text-slate-800">
+                      Condition: {u.conditionText}
+                    </p>
+
+                    {latestEvidence && (
+                      <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-xs flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <FileCheck2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                          <span className="font-medium text-slate-800">{latestEvidence.fileName}</span>
+                          <span className="text-[10px] text-slate-400">
+                            by {latestEvidence.submittedBy} on {formatDate(latestEvidence.submittedAt)}
+                          </span>
+                        </div>
+                        <span className="font-mono text-[10px] bg-white px-2 py-0.5 rounded border border-slate-200 text-slate-600" title={latestEvidence.fileHash}>
+                          SHA-256: {shortHash(latestEvidence.fileHash, 8)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-shrink-0 self-end lg:self-center">
+                    <button
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={() => handleVerifyUndertaking(u.id, 'VERIFIED')}
+                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-sm flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                    >
+                      {isProcessing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCheck className="w-3.5 h-3.5" />}
+                      <span>Verify Evidence</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={() => {
+                        setRejectModal({
+                          type: 'UNDERTAKING',
+                          id: u.id,
+                          label: u.conditionText,
+                        });
+                        setRejectRemarks('');
+                      }}
+                      className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      <span>Reject</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* SECTION 2: Document Renewals Queue */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="w-4 h-4 text-purple-700" />
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+              Statutory Document Renewals Queue ({queueData.renewals.length})
+            </h3>
+          </div>
+          <span className="text-[11px] text-slate-500">
+            Verified renewals extend validity and automatically unlock applications
+          </span>
+        </div>
+
+        {queueData.renewals.length === 0 ? (
+          <div className="p-8 text-center text-xs text-slate-400">
+            No pending document renewals in your regional queue.
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {queueData.renewals.map((r) => {
+              const isProcessing = verifyingId === r.id;
+              const ev = r.renewalEvidence;
+
+              return (
+                <div key={r.id} className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 hover:bg-slate-50/50">
+                  <div className="space-y-2 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs font-bold text-gov-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                        {r.applicationId}
+                      </span>
+                      <span className="font-bold text-xs uppercase px-2 py-0.5 rounded bg-purple-100 text-purple-900">
+                        {r.docType.replace(/_/g, ' ')}
+                      </span>
+                      <span className="text-xs text-slate-500 font-medium">
+                        Current Expiry: <strong className="text-slate-800">{r.expiryDate}</strong>
+                      </span>
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-800">
+                        {r.state}
+                      </span>
+                    </div>
+
+                    {ev && (
+                      <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-xs flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <FileCheck2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                          <span className="font-medium text-slate-800">{ev.fileName}</span>
+                          <span className="text-[10px] text-slate-400">
+                            by {ev.submittedBy} on {formatDate(ev.submittedAt)}
+                          </span>
+                        </div>
+                        <span className="font-mono text-[10px] bg-white px-2 py-0.5 rounded border border-slate-200 text-slate-600" title={ev.fileHash}>
+                          SHA-256: {shortHash(ev.fileHash, 8)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-shrink-0 self-end lg:self-center">
+                    <button
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={() => handleVerifyRenewal(r.id, 'VERIFIED')}
+                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-sm flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                    >
+                      {isProcessing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCheck className="w-3.5 h-3.5" />}
+                      <span>Verify Renewal & Unlock</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={() => {
+                        setRejectModal({
+                          type: 'RENEWAL',
+                          id: r.id,
+                          label: `${r.docType.replace(/_/g, ' ')} renewal for ${r.applicationId}`,
+                        });
+                        setRejectRemarks('');
+                      }}
+                      className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      <span>Reject</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )}
+
       {/* REVIEW & HUMAN SIGN-OFF MODAL */}
       {reviewApp && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1309,6 +1663,73 @@ export default function OfficerPage() {
               >
                 {returnSubmitting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                 <span>Record Return & Issue Notice</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* REJECT EVIDENCE / RENEWAL MODAL */}
+      {rejectModal && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl p-6 space-y-4">
+            <div className="border-b border-slate-200 pb-3 flex items-center justify-between">
+              <div>
+                <span className="font-mono text-xs font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded border border-red-200">
+                  REJECTION SAFEGUARD
+                </span>
+                <h2 className="text-base font-bold text-slate-900 mt-1">
+                  Reject {rejectModal.type === 'UNDERTAKING' ? 'Undertaking Evidence' : 'Document Renewal'}
+                </h2>
+              </div>
+              <button
+                onClick={() => setRejectModal(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <SafeguardNotice compact />
+
+            <div className="p-3 bg-slate-50 rounded-lg text-xs space-y-1 border border-slate-200">
+              <span className="font-bold text-slate-700 uppercase text-[10px]">Target Record:</span>
+              <p className="font-mono text-xs text-gov-blue-900 font-bold">{rejectModal.id}</p>
+              <p className="text-slate-600 text-[11px]">{rejectModal.label}</p>
+            </div>
+
+            <div className="space-y-1">
+              <label className="block text-xs font-bold text-slate-700 uppercase">
+                Rejection Remarks *
+              </label>
+              <textarea
+                rows={3}
+                value={rejectRemarks}
+                onChange={(e) => setRejectRemarks(e.target.value)}
+                placeholder="State specific deficiencies or legal discrepancies in the submitted evidence..."
+                className="w-full text-xs p-3 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-red-500 focus:outline-none"
+              />
+              <p className="text-[10px] text-slate-500">
+                AICTE Safeguard Notice: Rejections require a confirmed officer sign-off on the application. Rejections are immutably posted to the SHA-256 audit ledger.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setRejectModal(null)}
+                className="px-4 py-2 rounded-lg bg-slate-100 text-slate-700 text-xs font-semibold hover:bg-slate-200"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={rejectSubmitting || !rejectRemarks.trim()}
+                onClick={handleConfirmReject}
+                className="px-4 py-2 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700 disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+              >
+                {rejectSubmitting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                <span>Confirm Rejection</span>
               </button>
             </div>
           </div>

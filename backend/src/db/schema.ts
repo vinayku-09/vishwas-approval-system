@@ -18,6 +18,9 @@ import type {
   LedgerEntry,
   Notification,
   SignoffRecord,
+  Undertaking,
+  UndertakingEvidence,
+  UndertakingVerification,
   User,
 } from '../types.js';
 
@@ -176,3 +179,39 @@ export const usersTable = pgTable(
     index('users_role_idx').on(table.role),
   ]
 );
+
+export const undertakingsTable = pgTable(
+  'undertakings',
+  {
+    id: text('id').primaryKey(),
+    applicationId: text('application_id').notNull(),
+    status: text('status').notNull(),
+    dueDate: text('due_date').notNull(),
+    data: jsonb('data').$type<Undertaking>().notNull(),
+  },
+  (table) => [
+    index('undertakings_application_idx').on(table.applicationId),
+    index('undertakings_status_idx').on(table.status),
+  ]
+);
+
+export const evidenceTable = pgTable(
+  'evidence',
+  {
+    id: text('id').primaryKey(),
+    undertakingId: text('undertaking_id').notNull(),
+    data: jsonb('data').$type<UndertakingEvidence>().notNull(),
+  },
+  (table) => [index('evidence_undertaking_idx').on(table.undertakingId)]
+);
+
+export const verificationsTable = pgTable(
+  'verifications',
+  {
+    id: text('id').primaryKey(),
+    undertakingId: text('undertaking_id').notNull(),
+    data: jsonb('data').$type<UndertakingVerification>().notNull(),
+  },
+  (table) => [index('verifications_undertaking_idx').on(table.undertakingId)]
+);
+

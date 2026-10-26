@@ -95,6 +95,56 @@ export interface ComplianceDocument {
   lastCheckedAt: string;
   // Optional due date for a pending authenticity/verification check (Phase C).
   authenticityDueAt?: string; // YYYY-MM-DD
+  // Part 4: Renewal tracking
+  renewalStatus?: 'SUBMITTED' | 'VERIFIED' | 'REJECTED';
+  renewalEvidence?: {
+    fileName: string;
+    fileHash: string;
+    storageRef: string;
+    submittedBy: string;
+    submittedAt: string;
+    proposedValidityDate?: string;
+  };
+  renewalVerification?: {
+    officer: string;
+    decision: 'VERIFIED' | 'REJECTED';
+    remarks?: string;
+    timestamp: string;
+  };
+}
+
+export type UndertakingStatus = 'PENDING' | 'SUBMITTED' | 'VERIFIED' | 'REJECTED' | 'OVERDUE';
+
+export interface Undertaking {
+  id: string;
+  applicationId: string;
+  conditionText: string;
+  dueDate: string; // ISO date / timestamp
+  status: UndertakingStatus;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  evidence?: UndertakingEvidence[];
+  verifications?: UndertakingVerification[];
+}
+
+export interface UndertakingEvidence {
+  id: string;
+  undertakingId: string;
+  fileName: string;
+  fileHash: string; // SHA-256
+  storageRef: string;
+  submittedBy: string;
+  submittedAt: string;
+}
+
+export interface UndertakingVerification {
+  id: string;
+  undertakingId: string;
+  officer: string;
+  decision: 'VERIFIED' | 'REJECTED';
+  remarks: string;
+  timestamp: string;
 }
 
 export interface Notification {

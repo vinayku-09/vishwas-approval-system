@@ -53,14 +53,17 @@ All timelines, reminder tiers and escalation delays in the current build are pla
 
 ## 3. Data Model
 
-The Postgres schema contains 12 application tables plus Drizzle migration metadata:
+The Postgres schema contains 15 application tables plus Drizzle migration metadata:
 
 | Table | Purpose |
 | :--- | :--- |
 | `applications` | Application identity, workflow status, region, type, SLA dates and JSONB route/return fields |
 | `users` | Seeded and future accounts, role, region, institution and password hash |
 | `documents` | Uploaded file metadata and SHA-256 hashes |
-| `compliance_documents` | Expiry tracking, warning tiers and locked-application inputs |
+| `compliance_documents` | Expiry tracking, warning tiers, renewal status/evidence, and locked-application inputs |
+| `undertakings` | Statutory conditional commitments, due dates, statuses (`PENDING`, `SUBMITTED`, `VERIFIED`, `REJECTED`, `OVERDUE`) and creator |
+| `evidence` | Undertaking proof files, SHA-256 hashes, storage references, and submitter info |
+| `verifications` | Officer verification decisions (`VERIFIED`, `REJECTED`), remarks, and audit timestamps |
 | `inspections` | EVC inspection assignments, schedule and report state |
 | `inspectors` | Inspector profile, domain, location and availability |
 | `affiliations` | Conflict-of-interest records used before routing |
@@ -70,7 +73,7 @@ The Postgres schema contains 12 application tables plus Drizzle migration metada
 | `alert_logs` | Reminder and escalation dispatch log with mail status |
 | `escalations` | Escalation lifecycle (`OPEN`, `ACKNOWLEDGED`, `RESOLVED`) |
 
-Application, user and alert records use typed JSON payloads for the current prototype. Route metadata is resolved from application type at response time and is not persisted. Return records (`returns`, `lastReturn`) live in the existing application JSONB payload, so Part 2 did not add a table or migration. Stage SLA values used by Part 3 dashboards are derived from the four PS route stage lists at runtime and are not persisted. The data model will evolve in Part 4 for undertakings and renewals.
+Application, user and alert records use typed JSON payloads for the current prototype. Route metadata is resolved from application type at response time and is not persisted. Returns live in the existing application JSONB payload. Part 4 added `undertakings`, `evidence`, and `verifications` tables with Drizzle migration `0001_undertakings_renewals.sql`. Renewals update `compliance_documents` renewal columns.
 
 ## 4. Configuration Locations
 
@@ -83,7 +86,7 @@ Application, user and alert records use typed JSON payloads for the current prot
 | Reminder offsets and escalation matrix | `backend/src/config/alerts.ts` | Placeholder pending APH |
 | Route definitions, application-type mapping, return targets and categories | `backend/src/config/routes.ts` | Placeholder pending APH |
 | Stage-level SLA days, approaching threshold and ageing buckets | `backend/src/config/sla-config.ts` | Placeholder pending APH |
-| Renewal validity periods | Planned for Part 4 | Not built |
+| Default undertaking duration and renewal validity periods | `backend/src/config/undertakings.ts` | Placeholder pending APH |
 
 Every value above is a product placeholder, not an official AICTE rule. See `docs/assumptions.md` for the current values.
 

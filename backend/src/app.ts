@@ -10,6 +10,7 @@ import { schedulingRouter } from './routes/scheduling.js';
 import { authRouter } from './routes/auth.js';
 import { escalationsRouter } from './routes/escalations.js';
 import { dashboardsRouter } from './routes/dashboards.js';
+import { undertakingsRouter, complianceRouter, officerQueueRouter } from './routes/undertakings.js';
 import { getMailHealth } from './services/mailer.js';
 import { initializeStore } from './db/index.js';
 
@@ -54,6 +55,9 @@ app.route('/notifications', notificationsRouter);
 app.route('/escalations', escalationsRouter);
 app.route('/ledger', ledgerRouter);
 app.route('/dashboards', dashboardsRouter);
+app.route('/undertakings', undertakingsRouter);
+app.route('/compliance', complianceRouter);
+app.route('/officer/verification-queue', officerQueueRouter);
 
 // Global 404 handler
 app.notFound((c) => {

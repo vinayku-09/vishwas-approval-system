@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-10-26 - Part 4: undertakings and renewals
+
+### Added
+
+- Data model and Drizzle migration `0001_undertakings_renewals.sql` for `undertakings`, `evidence`, and `verifications`, plus renewal columns in `compliance_documents`.
+- Full dual-store implementation in both in-memory store and Postgres/Neon store with identical method contracts and tests.
+- Undertaking duration and renewal validity period config (`backend/src/config/undertakings.ts`), marked "placeholder pending APH".
+- Institution undertakings view, evidence upload with SHA-256 calculation, and document renewal submission with file validation (PDF/PNG/JPG ≤ 10MB).
+- Regional officer verification queue (`GET /officer/verification-queue`) scoped by role and region, with evidence verify and reject handlers.
+- Rejection safeguards: rejection of undertakings and document renewals requires non-empty recorded remarks and an existing confirmed sign-off on the application.
+- Document renewal verification: updates document validity period, re-evaluates compliance status, automatically releases compliance locks on locked applications, and logs to ledger.
+- Daily cron automation (`/cron/expiry-check`) marks expired undertakings `OVERDUE`.
+- Reminder and escalation alert integration with real undertaking due dates, maintaining idempotency (0 duplicates on subsequent runs).
+- Immutable ledger audit entries for all submissions, verifications, rejections, escalations, closures, and application unlocks.
+- Complete test suite (`backend/src/__tests__/undertakings.test.ts`) covering full lifecycle, overdue automation, escalation tiers, idempotency, application unlock, role/region scoping boundaries, and rejection safeguards (156 total backend tests passing across 13 test files).
+- Frontend UI in institution drawer (Undertakings tab, renewal uploads) and officer portal (Verification Queue tab, rejection modal with visible `SafeguardNotice`).
+
 ## 2026-10-26 - Part 3: pendency dashboards and EVC board
 
 ### Added

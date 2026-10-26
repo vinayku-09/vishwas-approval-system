@@ -21,10 +21,15 @@ import {
   Region,
   SignoffRecord,
   Status,
+  Undertaking,
+  UndertakingEvidence,
+  UndertakingStatus,
+  UndertakingVerification,
   User,
 } from '../types.js';
 import { createLedgerEntry, GENESIS_HASH } from '../services/ledger.js';
 import { SLA_WINDOW_DAYS_NEW } from '../config/timelines.js';
+import { DEFAULT_UNDERTAKING_DURATION_DAYS } from '../config/undertakings.js';
 import { InMemoryStore, type IStore } from './store.js';
 import * as schema from './schema.js';
 
@@ -107,6 +112,32 @@ export class PostgresStore implements IStore {
       region: escalation.region,
       createdAt: escalation.createdAt,
       data: escalation,
+    };
+  }
+
+  private undertakingRow(u: Undertaking) {
+    return {
+      id: u.id,
+      applicationId: u.applicationId,
+      status: u.status,
+      dueDate: u.dueDate,
+      data: u,
+    };
+  }
+
+  private evidenceRow(e: UndertakingEvidence) {
+    return {
+      id: e.id,
+      undertakingId: e.undertakingId,
+      data: e,
+    };
+  }
+
+  private verificationRow(v: UndertakingVerification) {
+    return {
+      id: v.id,
+      undertakingId: v.undertakingId,
+      data: v,
     };
   }
 
@@ -650,6 +681,135 @@ export class PostgresStore implements IStore {
     return { tampered: true, entryId: targetEntry.id };
   }
 
+  // Undertakings & Renewals (Part 4)
+  async createUndertaking(data: {
+    applicationId: string;
+    conditionText: string;
+    dueDate?: string;
+    createdBy?: string;
+    id?: string;
+    status?: UndertakingStatus;
+  }): Promise<Undertaking> {
+    const id = data.id || `UT-${data.applicationId}-${Date.now().toString().slice(-6)}`;
+    const now = new Date();
+    const dueDate =
+      data.dueDate ||
+      new Date(now.getTime() + DEFAULT_UNDERTAKING_DURATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const undertaking: Undertaking = {
+      id,
+      applicationId: data.applicationId,
+      conditionText: data.conditionText,
+      dueDate,
+      status: data.status || 'PENDING',
+      createdBy: data.createdBy || 'system',
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
+    await this.db
+      .insert(schema.undertakingsTable)
+      .values(this.undertakingRow(undertaking))
+      .onConflictDoUpdate({
+        target: schema.undertakingsTable.id,
+        set: {
+          applicationId: undertaking.applicationId,
+          status: undertaking.status,
+          dueDate: undertaking.dueDate,
+          data: undertaking,
+        },
+      });
+    return clone(undertaking);
+  }
+
+  async getUndertaking(id: string): Promise<Undertaking | null> {
+    const rows = await this.db
+      .select()
+      .from(schema.undertakingsTable)
+      .where(eq(schema.undertakingsTable.id, id))
+      .limit(1);
+    if (!rows[0]) return null;
+    const undertaking = clone(rows[0].data);
+    undertaking.evidence = await this.getEvidence(id);
+    undertaking.verifications = await this.getVerifications(id);
+    return undertaking;
+  }
+
+  async listUndertakings(filters?: {
+    applicationId?: string;
+    status?: UndertakingStatus;
+  }): Promise<Undertaking[]> {
+    const conditions: SQL[] = [];
+    if (filters?.applicationId) {
+      conditions.push(eq(schema.undertakingsTable.applicationId, filters.applicationId));
+    }
+    if (filters?.status) {
+      conditions.push(eq(schema.undertakingsTable.status, filters.status));
+    }
+    const query = conditions.length
+      ? this.db.select().from(schema.undertakingsTable).where(and(...conditions))
+      : this.db.select().from(schema.undertakingsTable);
+
+    const rows = await query;
+    const populated = await Promise.all(
+      rows.map(async (r) => {
+        const u = clone(r.data);
+        u.evidence = await this.getEvidence(u.id);
+        u.verifications = await this.getVerifications(u.id);
+        return u;
+      })
+    );
+    return populated.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async updateUndertaking(id: string, updates: Partial<Undertaking>): Promise<Undertaking | null> {
+    const existing = await this.getUndertaking(id);
+    if (!existing) return null;
+    const updated: Undertaking = {
+      ...existing,
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    };
+    const { evidence: _e, verifications: _v, ...payload } = updated;
+    await this.db
+      .update(schema.undertakingsTable)
+      .set({
+        status: updated.status,
+        dueDate: updated.dueDate,
+        data: payload as Undertaking,
+      })
+      .where(eq(schema.undertakingsTable.id, id));
+    return this.getUndertaking(id);
+  }
+
+  async saveEvidence(evidence: UndertakingEvidence): Promise<UndertakingEvidence> {
+    await this.db
+      .insert(schema.evidenceTable)
+      .values(this.evidenceRow(evidence));
+    return clone(evidence);
+  }
+
+  async getEvidence(undertakingId: string): Promise<UndertakingEvidence[]> {
+    const rows = await this.db
+      .select()
+      .from(schema.evidenceTable)
+      .where(eq(schema.evidenceTable.undertakingId, undertakingId));
+    return rows.map((r) => clone(r.data));
+  }
+
+  async saveVerification(verification: UndertakingVerification): Promise<UndertakingVerification> {
+    await this.db
+      .insert(schema.verificationsTable)
+      .values(this.verificationRow(verification));
+    return clone(verification);
+  }
+
+  async getVerifications(undertakingId: string): Promise<UndertakingVerification[]> {
+    const rows = await this.db
+      .select()
+      .from(schema.verificationsTable)
+      .where(eq(schema.verificationsTable.undertakingId, undertakingId));
+    return rows.map((r) => clone(r.data));
+  }
+
   async seed(): Promise<void> {
     // Demo data: InMemoryStore.seed() includes the Part 3 labelled idempotent
     // top-up (APP-DEMO-* pendency/EVC records). Copying that source loads the
@@ -657,6 +817,9 @@ export class PostgresStore implements IStore {
     // then reloads those labelled demo records.
     const source = new InMemoryStore();
 
+    await this.db.delete(schema.verificationsTable);
+    await this.db.delete(schema.evidenceTable);
+    await this.db.delete(schema.undertakingsTable);
     await this.db.delete(schema.alertLogsTable);
     await this.db.delete(schema.escalationsTable);
     await this.db.delete(schema.notificationsTable);
@@ -778,6 +941,31 @@ export class PostgresStore implements IStore {
             })
           );
         }
+      }
+    }
+
+    const undertakings = await source.listUndertakings();
+    for (const batch of chunk(undertakings)) {
+      if (batch.length) {
+        await this.db.insert(schema.undertakingsTable).values(batch.map((u) => this.undertakingRow(u)));
+      }
+    }
+
+    const allEvidence = (
+      await Promise.all(undertakings.map((u) => source.getEvidence(u.id)))
+    ).flat();
+    for (const batch of chunk(allEvidence)) {
+      if (batch.length) {
+        await this.db.insert(schema.evidenceTable).values(batch.map((e) => this.evidenceRow(e)));
+      }
+    }
+
+    const allVerifications = (
+      await Promise.all(undertakings.map((u) => source.getVerifications(u.id)))
+    ).flat();
+    for (const batch of chunk(allVerifications)) {
+      if (batch.length) {
+        await this.db.insert(schema.verificationsTable).values(batch.map((v) => this.verificationRow(v)));
       }
     }
   }

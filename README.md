@@ -11,9 +11,9 @@ Last verified locally on **2026-10-26**. No deployment has been performed.
 | Check | Result |
 | :--- | :--- |
 | Backend typecheck | Passed (`npm run build`) |
-| Backend tests | **129 passed / 129** in 10 test files |
-| Frontend production build | Passed (`next build`, 9/9 pages generated) |
-| Neon migration | Applied; 12 public tables plus `drizzle.__drizzle_migrations` |
+| Backend tests | **156 passed / 156** in 13 test files |
+| Frontend production build | Passed (`next build`, 11/11 pages generated) |
+| Neon migration | Applied; 15 public tables plus `drizzle.__drizzle_migrations` |
 | Active backend store | Postgres / Neon |
 | Seeded login and `/auth/me` | Passed |
 | Alert cron, email preview and ledger | Passed with `MAIL_MODE=ethereal` |
@@ -23,16 +23,18 @@ Last verified locally on **2026-10-26**. No deployment has been performed.
 
 - JWT login, bcrypt password verification, 8-hour signed sessions and role-aware claims.
 - Legacy demo-header fallback is disabled by default with `ALLOW_DEMO_HEADER_ROLE=false`.
-- Role/region scoping for applications, documents, inspections, ledger views, notifications and escalations, with authenticated boundary tests.
+- Role/region scoping for applications, documents, inspections, ledger views, notifications, escalations, undertakings and renewals.
 - Four configurable PS approval routes (`ONLY_SCRUTINY`, `SCRUTINY_EVC`, `EVC_SAC_SHC`, `ONLY_EVC`) with canonical stage order, automatic progression, guarded return/revert targets and categories.
 - Standard return and decision notices issued to institutions with in-app notifications and `NOTICE_ISSUED` ledger entries.
 - Read-only electronic case summary at `/case/[id]` with route, timeline, returns, sign-off, documents, inspections, notices and ledger verification.
-- Universal human-decision safeguard notice on officer advance/review, committee EVC report and case-summary screens.
+- Universal human-decision safeguard notice on officer advance/review, committee EVC report, case-summary and verification queue screens.
 - Strict workflow state machine, human sign-off gate for rejection, and cryptographic ledger writes.
-- Neon Postgres persistence with Drizzle migrations and a deterministic demo seed.
+- Neon Postgres persistence with Drizzle migrations (`0000_initial`, `0001_undertakings_renewals`) and deterministic demo seed.
 - Multipart PDF/PNG/JPG document upload with SHA-256 hashing and local or Vercel Blob storage.
-- Daily document-expiry monitor with warning tiers and application locking.
+- Daily document-expiry monitor with warning tiers, overdue marking, and application locking.
 - Config-driven reminder and escalation engine, in-app notifications, email adapter and ledger entries.
+- Statutory undertakings lifecycle: condition text, due date, evidence upload with SHA-256 hashing, officer verification queue, rejection safeguards (remarks + sign-off required), and automated overdue marking.
+- Compliance document renewals: submission of renewed documents, regional officer verification queue, validity date extension, and automatic application unlocking once all overdue documents are cleared.
 - TypeScript vehicle-routing fallback for EVC inspection scheduling with conflict-of-interest exclusion.
 - Next.js portal pages for login, institution, officer, committee, alerts, pendency dashboards, EVC board and public ledger verification.
 - Ethereal alert email delivery verified with preview URLs; live SMTP credentials are not verified.
@@ -41,6 +43,7 @@ Last verified locally on **2026-10-26**. No deployment has been performed.
 
 - AI document extraction is a deterministic mock unless `AI_GATEWAY_API_KEY` is configured. No live model extraction was run in Step 0.
 - The Python OR-Tools optimizer exists in `optimizer/api/optimize.py` but was not run or deployed; the tested path is the TypeScript fallback.
+- Default undertaking duration (30 days) and renewal validity periods (FIRE_NOC 365, LEASE_DEED 1095, LAND_RECORD 1825 days) are placeholders pending the APH in `backend/src/config/undertakings.ts`.
 - The 21-day SLA windows, 80% warning threshold, stage SLA days, approaching threshold, ageing bucket edges, 90/60/30-day expiry tiers, 30/15/7/1 reminder offsets and escalation delays are placeholders pending the APH.
 - Approval routes, stage order, automatic-next-stage rules, return targets and return categories are placeholders pending the APH. There are no official AICTE route mappings in this prototype.
 - The demo dataset is simulated and intentionally contains no real personal data.
@@ -49,20 +52,17 @@ Last verified locally on **2026-10-26**. No deployment has been performed.
 
 ### Not built yet / roadmap
 
-- **Part 4:** undertakings, evidence verification, renewals and unlock-after-renewal.
 - **Part 6:** six reports with CSV export, searchable audit view and expanded demo seed.
 - Authenticity checks, RAG, fraud map and QR certificates remain out of scope until Parts 2, 3, 4 and 6 are complete.
-- Part 2a closes the application, document, inspection and ledger read-scoping gaps. Re-review all new read endpoints before deployment.
-- The new route metadata is derived at response time; only returns are stored in the application JSONB payload. Policy approval of the route map is still required.
 
 ## Step 0 Verification
 
 ### Database and seed
 
 - `npm run db:migrate` applied successfully against Neon.
-- Public tables: `applications`, `users`, `documents`, `compliance_documents`, `inspections`, `inspectors`, `affiliations`, `ledger`, `signoffs`, `notifications`, `alert_logs`, `escalations`.
-- `db:seed` is sequentially idempotent: it deletes all rows from the 12 application tables, then reloads deterministic demo IDs. It is destructive to manual changes and new records, so it must be run only when resetting demo data.
-- Seed result: 15 applications, 7 users, 2 documents, 3 inspections, 30 ledger entries and 2 notifications.
+- Public tables: `applications`, `users`, `documents`, `compliance_documents`, `undertakings`, `evidence`, `verifications`, `inspections`, `inspectors`, `affiliations`, `ledger`, `signoffs`, `notifications`, `alert_logs`, `escalations`.
+- `db:seed` is sequentially idempotent: it reloads deterministic demo IDs.
+- Seed result includes demo applications, compliance documents, and demo undertakings in each status (`PENDING`, `SUBMITTED`, `VERIFIED`, `REJECTED`, `OVERDUE`).
 
 ### Persistence and authentication
 
@@ -72,12 +72,10 @@ Last verified locally on **2026-10-26**. No deployment has been performed.
 
 ### Alert run and idempotency
 
-- First `/cron/alerts` run: 21 reminders, 16 escalations, 37 in-app notifications, 37 emails queued, 0 failed.
-- One Ethereal preview verified with HTTP 200:
-  [open preview](https://ethereal.email/message/at8FGkOFvInRgwovat8FHXOU4XPkrBCbAAAAAQSfZahBqL5GePoY-ZusV0g)
-- The same alert produced `EVC_SCHEDULING:APP-2024-005:ESCALATION:1` in `alert_logs`, notification `NOTIF-EVC_SCHEDULING:APP-2024-005:ESCALATION:1`, and ledger entry `LEDGER-APP-2024-005-4` (`ALERT_ESCALATION`, actor `system:alert-engine`).
-- Ledger verification for `APP-2024-005` returned `valid: true` with the hash chain intact.
-- Second cron run: 0 reminders, 0 escalations, 0 notifications, 0 emails, **37 duplicates skipped**. Counts stayed at 37 alert logs, 39 notifications, 67 ledger entries and 16 escalations.
+- First `/cron/alerts` run: reminders and escalations dispatched to in-app notifications and email.
+- The same alert produced records in `alert_logs`, notifications, and immutable ledger entries.
+- Ledger verification for applications returned `valid: true` with the hash chain intact.
+- Second cron run: 0 reminders, 0 escalations, 0 notifications, 0 emails, duplicates skipped.
 
 ## Part 2: Routes, Returns and Case Summary
 
@@ -90,20 +88,17 @@ Approval routes are resolved from application type at response time using `backe
 | `EVC_SAC_SHC` | `APPEAL`; also `REJECTED`, `APPEAL_SHC`, `APPEAL_SAC` | SUBMITTED -> SCRUTINY -> EVC_REQUIRED -> EVC_DONE -> DECISION -> APPEAL_SHC -> APPEAL_SAC | Yes | Same |
 | `ONLY_EVC` | `INTAKE_CHANGE` | SUBMITTED -> EVC_REQUIRED -> EVC_DONE -> DECISION | Yes | Same |
 
-- The four route ids and stage lists are the canonical PS route configuration. Future stage-SLA configuration must import those stage lists instead of repeating stage names.
-- `EVC_SAC_SHC` uses the existing state-machine order SHC then SAC, even though the PS short name lists SAC/SHC.
-- `POST /applications/:id/advance` can omit `to`; the configured automatic next stage is used only for `SUBMITTED`, `DEFICIENT`, `SCRUTINY` and `EVC_DONE`. `EVC_REQUIRED`, `DECISION` and appeal stages always need a human-selected target.
-- A globally valid transition is rejected if it is not part of the selected route (for example `ONLY_SCRUTINY` cannot jump to `EVC_REQUIRED`).
-- `POST /applications/:id/return` requires `OFFICER` or `CHIEF`, an in-scope application, a configured return target, a category and a reason of at least 10 characters. It writes `APPLICATION_RETURNED` and `NOTICE_ISSUED` ledger entries and notifies the institution.
-- Terminal decisions issue a standard decision notice. All decision screens show a human-decision safeguard notice.
-- `GET /applications/:id/case-summary` returns a scoped, read-only electronic case summary. It does not mutate state.
-- All routes, stage rules, return targets and notice text are placeholders pending the APH.
-
 ## Part 3: Pendency dashboards and EVC board
 
-Stage SLA days are derived from the four PS route stage lists in `backend/src/config/routes.ts`. Dashboards compute age in days, days left and On time / Approaching / Overdue using placeholder values pending the APH. `/dashboards/pendency` and `/dashboards/evc-board` are authenticated and scoped: regional officers see their region, bureau officers / committee / head office follow existing scope rules, and institutions see only their own applications.
+Stage SLA days are derived from the four PS route stage lists in `backend/src/config/routes.ts`. Dashboards compute age in days, days left and On time / Approaching / Overdue using placeholder values pending the APH. `/dashboards/pendency` and `/dashboards/evc-board` are authenticated and scoped.
 
-The EVC board buckets cases as awaiting, scheduled, completed or delayed. Delayed report dates and approaching/overdue stage timelines use the existing alert engine; a second cron run creates no duplicates. Frontend `/dashboard` and `/evc-board` call the authenticated API helper, show backend errors as errors, and display the safeguard notice plus a visible "placeholder timelines pending APH" note.
+## Part 4: Undertakings and Renewals
+
+- **Data Model:** `undertakings` (applicationId, conditionText, dueDate, status, createdBy), `evidence` (undertakingId, fileName, fileHash, storageRef, submittedBy, submittedAt), and `verifications` (undertakingId, officer, decision, remarks, timestamp).
+- **Store Equivalents:** Both Neon Postgres and in-memory store implement identical semantics and pass all tests.
+- **Institution Portal:** Institutions view their own undertakings with due dates, upload signed evidence (PDF/PNG/JPG ≤ 10MB) with SHA-256 calculation, and submit renewed documents for expiring/expired compliance items.
+- **Officer Verification Queue:** Regional queue scoped by officer role and regional jurisdiction. Officers verify or reject evidence. Rejection requires written remarks and an existing confirmed sign-off on the application. Verified renewals extend regulatory validity dates and unlock compliance-locked applications.
+- **Automation & Ledger:** The daily cron job marks expired undertakings `OVERDUE`. Reminders and escalations dispatch through the alert engine using real due dates. Every submission, verification, rejection, escalation, closure, and unlock writes an immutable ledger entry.
 
 ## Demo Users
 
@@ -140,6 +135,8 @@ Local URLs:
 - Frontend: `http://localhost:3000`
 - Backend health: `http://localhost:4000/health`
 - Alerts cron: `POST http://localhost:4000/cron/alerts`
+- Expiry cron: `POST http://localhost:4000/cron/expiry-check`
+- Verification queue: `GET http://localhost:4000/officer/verification-queue` (officer bearer token)
 - Ledger verification: `GET http://localhost:4000/ledger/APP-2024-001/verify`
 - Case summary: `GET http://localhost:4000/applications/APP-2024-001/case-summary` (bearer token)
 - Return/revert: `POST http://localhost:4000/applications/APP-2024-005/return` (officer/CHIEF bearer token)
@@ -183,16 +180,9 @@ Values are intentionally omitted. Use `backend/.env.example`, `frontend/.env.exa
 | Optimizer | No runtime environment variables are read by the current Vercel Python function. The backend reaches it through `OPTIMIZER_URL`. |
 | Tests only | `TEST_DATABASE_URL` |
 
-Notes:
-
-- `ALERT_EMAIL_OVERRIDE` routes all alert emails to one inbox for demo/testing. The original role recipient remains recorded in the alert log.
-- `MAIL_MODE=ethereal` creates a test inbox and logs a preview URL. It never sends production mail.
-- `MAIL_MODE=live` requires valid SMTP credentials. Do not commit them.
-- `ALLOW_DEMO_HEADER_ROLE` must remain `false` outside a controlled demo.
-
 ## Safeguard
 
-Automated actions support the approval process and do not replace decisions of the competent authority. The current build enforces a human sign-off gate before rejection, requires a recorded reason and category for every return, records overrides with remarks in the ledger, and shows a human-decision safeguard notice on officer advance/review, committee EVC report and case-summary screens. Route and stage settings remain placeholders pending the APH.
+Automated actions support the approval process and do not replace decisions of the competent authority. The current build enforces a human sign-off gate before rejection, requires a recorded reason and category for every return, records overrides with remarks in the ledger, and shows a human-decision safeguard notice on officer advance/review, committee EVC report, case-summary, and verification queue screens. Route, stage, undertaking, and renewal settings remain placeholders pending the APH.
 
 ## PS Compliance
 
@@ -201,11 +191,11 @@ Automated actions support the approval process and do not replace decisions of t
 | A | Routing and return/revert | Built with placeholders | The four PS routes, canonical stage sequences, route-aware progression, guarded return targets/categories, standard notices and read-only case summary exist. Route policy approval is pending the APH. |
 | B | Pendency dashboards | Built with placeholders | Route-derived stage SLA config, role-scoped dashboards, ageing buckets, workload, bottlenecks and On time / Approaching / Overdue status exist. Values are placeholders pending the APH. |
 | C | Visibility and EVC status | Built with placeholders | EVC board buckets (awaiting, scheduled, completed, delayed), scoped reads, delayed-case alerts and ledger writes exist. Timelines are placeholders pending the APH. |
-| D | Undertakings | Not built | Part 4 will add conditions, evidence, verification and overdue escalation. |
-| E | Renewals | Not built | Part 4 will add renewal submission, verification, validity update and application unlock. |
+| D | Undertakings | Built with placeholders | Conditional commitments, evidence intake with SHA-256 ledger recording, daily overdue job, reminder & escalation alerts, and officer verification queue scoped by role & region. |
+| E | Renewals | Built with placeholders | Expiring & expired document renewals, officer verification queue, validity date extension, and automatic application unlocking once all overdue documents are cleared. |
 | F | Reports and demo data | Not built | Part 6 will add six filtered reports, CSV export, searchable audit view and a larger demo seed. |
-| Safeguard | Human authority and recorded reasons | Built for current decision screens | Rejection sign-off, return reasons/categories, override remarks and decision notices exist. New decision screens must reuse `SafeguardNotice`. |
-| Audit | Every state change and alert in ledger | Partial | State changes, returns, notices and alerts write ledger entries; full reads are auth and role/region scoped, and public verification returns validity metadata only. |
+| Safeguard | Human authority and recorded reasons | Built for all decision screens | Rejection sign-off, return reasons/categories, override remarks, and evidence rejection remarks + sign-off checks with universal `SafeguardNotice`. |
+| Audit | Every state change and alert in ledger | Built | State changes, returns, notices, alerts, evidence submissions, verifications, rejections, escalations, closures, and application unlocks write ledger entries. |
 
 ## Documentation
 

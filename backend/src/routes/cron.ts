@@ -3,7 +3,7 @@ import { store } from '../db/store.js';
 import { computeExpiryState } from '../services/expiry.js';
 import { Notification } from '../types.js';
 import { DEFAULT_CRON_SECRET } from '../config/timelines.js';
-import { runAlertEngine } from '../services/alerts.js';
+import { runAlertEngine, markOverdueUndertakings } from '../services/alerts.js';
 
 export const cronRouter = new Hono();
 
@@ -48,6 +48,7 @@ cronRouter.post('/expiry-check', async (c) => {
   const now = new Date();
   let notificationsCreated = 0;
   let lockedApplications = 0;
+  const overdueUndertakingsMarked = await markOverdueUndertakings(now);
 
   // Track which application IDs were touched this run for summary ledger entry
   const touchedApplicationIds = new Set<string>();
@@ -146,6 +147,7 @@ cronRouter.post('/expiry-check', async (c) => {
     processedDocuments: allComplianceDocs.length,
     notificationsCreated,
     lockedApplications,
+    overdueUndertakingsMarked,
     timestamp: now.toISOString(),
   });
 });

@@ -92,6 +92,39 @@ function isClosed(status: string): boolean {
 }
 
 /**
+ * Scans all undertakings and marks those whose due dates have passed as OVERDUE.
+ * Idempotent: running multiple times never duplicates status changes or ledger entries.
+ */
+export async function markOverdueUndertakings(now: Date = new Date()): Promise<number> {
+  const undertakings = await store.listUndertakings();
+  let markedCount = 0;
+  const nowMidnight = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate()
+  );
+
+  for (const ut of undertakings) {
+    if (ut.status === 'PENDING' || ut.status === 'SUBMITTED' || ut.status === 'REJECTED') {
+      const [year, month, day] = ut.dueDate.slice(0, 10).split('-').map(Number);
+      const dueMidnight = Date.UTC(year, (month || 1) - 1, day || 1);
+      if (dueMidnight < nowMidnight) {
+        await store.updateUndertaking(ut.id, { status: 'OVERDUE' });
+        markedCount++;
+        await store.recordLedger(ut.applicationId, 'UNDERTAKING_OVERDUE', 'system:daily-job', {
+          undertakingId: ut.id,
+          conditionText: ut.conditionText,
+          dueDate: ut.dueDate,
+          previousStatus: ut.status,
+          markedAt: now.toISOString(),
+        });
+      }
+    }
+  }
+  return markedCount;
+}
+
+/**
  * Collects every open item that is bound to a due date. Pure read-only helper
  * (also useful in tests).
  */
@@ -147,8 +180,23 @@ export async function buildAlertItems(now: Date = new Date()): Promise<AlertItem
       });
     }
 
-    // 3. Pending institutional undertaking
-    if (app.undertakingDueAt && OPEN_APPLICATION_STATUSES.has(app.status)) {
+    // 3. Institutional undertakings with real due dates
+    const undertakings = await store.listUndertakings({ applicationId: app.id });
+    if (undertakings.length > 0) {
+      for (const ut of undertakings) {
+        if (ut.status !== 'VERIFIED' && OPEN_APPLICATION_STATUSES.has(app.status)) {
+          items.push({
+            eventId: `UNDERTAKING:${ut.id}`,
+            applicationId: app.id,
+            eventType: 'UNDERTAKING',
+            dueDate: ut.dueDate,
+            reason: `${describeAlertReason('UNDERTAKING')}: ${ut.conditionText}`,
+            region: normalizeRegion(app.region),
+            institutionName: app.institutionName,
+          });
+        }
+      }
+    } else if (app.undertakingDueAt && OPEN_APPLICATION_STATUSES.has(app.status)) {
       items.push({
         eventId: `UNDERTAKING:${app.id}`,
         applicationId: app.id,
@@ -367,6 +415,9 @@ async function dispatchAlert(params: {
 
 /** Runs the alert engine for a given "now" (defaults to the current time). */
 export async function runAlertEngine(now: Date = new Date()): Promise<AlertRunResult> {
+  // Mark overdue undertakings before building alert items
+  await markOverdueUndertakings(now);
+
   const items = await buildAlertItems(now);
   const result: AlertRunResult = {
     success: true,

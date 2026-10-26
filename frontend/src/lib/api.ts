@@ -29,7 +29,12 @@ import {
   SignoffRecord,
   StandardNotice,
   Status,
+  Undertaking,
+  UndertakingEvidence,
+  UndertakingStatus,
+  UndertakingVerification,
   UserRole,
+  VerificationQueueData,
   VerificationResult,
   PendencyDashboard,
   PendencyStatus,
@@ -46,6 +51,7 @@ import {
   INITIAL_MOCK_LEDGER,
   INITIAL_MOCK_NOTIFICATIONS,
   INITIAL_MOCK_ESCALATIONS,
+  INITIAL_MOCK_UNDERTAKINGS,
 } from './mock';
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
@@ -57,6 +63,7 @@ let localNotifications: Notification[] = [...INITIAL_MOCK_NOTIFICATIONS];
 let localLedger: Record<string, LedgerEntry[]> = JSON.parse(JSON.stringify(INITIAL_MOCK_LEDGER));
 let localInspections: InspectionAssignment[] = JSON.parse(JSON.stringify(INITIAL_MOCK_INSPECTIONS));
 let localEscalations: Escalation[] = JSON.parse(JSON.stringify(INITIAL_MOCK_ESCALATIONS));
+let localUndertakings: Undertaking[] = [...INITIAL_MOCK_UNDERTAKINGS];
 
 const TOKEN_KEY = 'aicte_token';
 const USER_KEY = 'aicte_user';
@@ -1226,3 +1233,195 @@ export async function getEvcBoard(filters?: {
   }
   return { data: res.data, isDemo: false };
 }
+
+// Undertakings & Renewals (Part 4)
+export async function getUndertakings(filters?: string | {
+  applicationId?: string;
+  status?: UndertakingStatus;
+}): Promise<{ data: Undertaking[]; isDemo: boolean }> {
+  const normFilters = typeof filters === 'string' ? { applicationId: filters } : filters;
+  const params = new URLSearchParams();
+  if (normFilters?.applicationId) params.set('applicationId', normFilters.applicationId);
+  if (normFilters?.status) params.set('status', normFilters.status);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const res = await request<Undertaking[]>(`/undertakings${query}`);
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+  let list = [...localUndertakings];
+  if (normFilters?.applicationId) {
+    list = list.filter((u) => u.applicationId === normFilters.applicationId);
+  }
+  if (normFilters?.status) {
+    list = list.filter((u) => u.status === normFilters.status);
+  }
+  return { data: list, isDemo: true };
+}
+
+export async function getUndertaking(id: string): Promise<{ data: Undertaking; isDemo: boolean }> {
+  const res = await request<Undertaking>(`/undertakings/${id}`);
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+  const found = localUndertakings.find((u) => u.id === id);
+  if (!found) {
+    throw new Error(`Undertaking ${id} not found in local mock data`);
+  }
+  return { data: found, isDemo: true };
+}
+
+export async function uploadUndertakingEvidence(
+  undertakingId: string,
+  file: File
+): Promise<{ data: { success: boolean; undertaking: Undertaking }; isDemo: boolean }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await request<{ success: boolean; undertaking: Undertaking }>(
+    `/undertakings/${undertakingId}/evidence`,
+    {
+      method: 'POST',
+      body: formData,
+    }
+  );
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+  const ut = localUndertakings.find((u) => u.id === undertakingId);
+  if (ut) {
+    ut.status = 'SUBMITTED';
+    ut.evidence = [
+      ...(ut.evidence || []),
+      {
+        id: `EVD-MOCK-${Date.now().toString().slice(-4)}`,
+        undertakingId,
+        fileName: file.name,
+        fileHash: 'mock-sha256-hash',
+        storageRef: `/uploads/${file.name}`,
+        submittedBy: 'demo@institution.edu',
+        submittedAt: new Date().toISOString(),
+      },
+    ];
+  }
+  return { data: { success: true, undertaking: ut! }, isDemo: true };
+}
+
+export async function verifyUndertaking(
+  undertakingId: string,
+  decision: 'VERIFIED' | 'REJECTED',
+  remarks?: string
+): Promise<{ data: { success: boolean; undertaking: Undertaking }; isDemo: boolean }> {
+  const res = await request<{ success: boolean; undertaking: Undertaking }>(
+    `/undertakings/${undertakingId}/verify`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ decision, remarks }),
+    }
+  );
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+  const ut = localUndertakings.find((u) => u.id === undertakingId);
+  if (ut) {
+    ut.status = decision;
+    ut.verifications = [
+      ...(ut.verifications || []),
+      {
+        id: `VERIF-MOCK-${Date.now().toString().slice(-4)}`,
+        undertakingId,
+        officer: 'demo.officer@aicte.gov.in',
+        decision,
+        remarks: remarks || '',
+        timestamp: new Date().toISOString(),
+      },
+    ];
+  }
+  return { data: { success: true, undertaking: ut! }, isDemo: true };
+}
+
+export async function submitRenewal(
+  complianceDocumentId: string,
+  file: File,
+  proposedValidityDate?: string
+): Promise<{ data: { success: boolean; complianceDocument: ComplianceDocument }; isDemo: boolean }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (proposedValidityDate) {
+    formData.append('proposedValidityDate', proposedValidityDate);
+  }
+  const res = await request<{ success: boolean; complianceDocument: ComplianceDocument }>(
+    `/compliance/${complianceDocumentId}/renew`,
+    {
+      method: 'POST',
+      body: formData,
+    }
+  );
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+  return {
+    data: {
+      success: true,
+      complianceDocument: {
+        id: complianceDocumentId,
+        applicationId: 'APP-2024-002',
+        docType: 'FIRE_NOC',
+        expiryDate: new Date().toISOString().slice(0, 10),
+        state: 'WARNING',
+        daysRemaining: 30,
+        lastCheckedAt: new Date().toISOString(),
+        renewalStatus: 'SUBMITTED',
+      },
+    },
+    isDemo: true,
+  };
+}
+
+export async function verifyRenewal(
+  complianceDocumentId: string,
+  decision: 'VERIFIED' | 'REJECTED',
+  remarks?: string
+): Promise<{ data: { success: boolean; complianceDocument: ComplianceDocument; unlocked?: boolean }; isDemo: boolean }> {
+  const res = await request<{ success: boolean; complianceDocument: ComplianceDocument; unlocked?: boolean }>(
+    `/compliance/${complianceDocumentId}/verify-renewal`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ decision, remarks }),
+    }
+  );
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+  return {
+    data: {
+      success: true,
+      unlocked: decision === 'VERIFIED',
+      complianceDocument: {
+        id: complianceDocumentId,
+        applicationId: 'APP-2024-002',
+        docType: 'FIRE_NOC',
+        expiryDate: '2028-06-30',
+        state: 'VALID',
+        daysRemaining: 730,
+        lastCheckedAt: new Date().toISOString(),
+        renewalStatus: decision,
+      },
+    },
+    isDemo: true,
+  };
+}
+
+export async function getVerificationQueue(): Promise<{ data: VerificationQueueData; isDemo: boolean }> {
+  const res = await request<VerificationQueueData>('/officer/verification-queue');
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+  const pendingUt = localUndertakings.filter((u) => u.status === 'SUBMITTED');
+  return {
+    data: {
+      undertakings: pendingUt,
+      renewals: [],
+    },
+    isDemo: true,
+  };
+}
+

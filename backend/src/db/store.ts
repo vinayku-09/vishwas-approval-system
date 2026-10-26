@@ -18,12 +18,17 @@ import {
   Region,
   SignoffRecord,
   Status,
+  Undertaking,
+  UndertakingEvidence,
+  UndertakingStatus,
+  UndertakingVerification,
   User,
 } from '../types.js';
 import bcrypt from 'bcryptjs';
 import { createLedgerEntry, GENESIS_HASH } from '../services/ledger.js';
 import { computeExpiryState } from '../services/expiry.js';
 import { SLA_WINDOW_DAYS_NEW } from '../config/timelines.js';
+import { DEFAULT_UNDERTAKING_DURATION_DAYS } from '../config/undertakings.js';
 
 export interface IStore {
   listApplications(filters?: { status?: Status; type?: ApplicationType }): Promise<Application[]>;
@@ -98,6 +103,26 @@ export interface IStore {
     payload: Record<string, unknown>
   ): Promise<LedgerEntry>;
   tamperLedger(applicationId: string, index?: number): Promise<{ tampered: boolean; entryId?: string }>;
+  // Undertakings & Renewals (Part 4)
+  createUndertaking(data: {
+    applicationId: string;
+    conditionText: string;
+    dueDate?: string;
+    createdBy?: string;
+    id?: string;
+    status?: UndertakingStatus;
+  }): Promise<Undertaking>;
+  getUndertaking(id: string): Promise<Undertaking | null>;
+  listUndertakings(filters?: {
+    applicationId?: string;
+    status?: UndertakingStatus;
+  }): Promise<Undertaking[]>;
+  updateUndertaking(id: string, updates: Partial<Undertaking>): Promise<Undertaking | null>;
+  saveEvidence(evidence: UndertakingEvidence): Promise<UndertakingEvidence>;
+  getEvidence(undertakingId: string): Promise<UndertakingEvidence[]>;
+  saveVerification(verification: UndertakingVerification): Promise<UndertakingVerification>;
+  getVerifications(undertakingId: string): Promise<UndertakingVerification[]>;
+
   seed(): Promise<void> | void;
 }
 
@@ -114,6 +139,9 @@ export class InMemoryStore implements IStore {
   private users: Map<string, User> = new Map();
   private alertLogs: Map<string, AlertLog> = new Map();
   private escalations: Map<string, Escalation> = new Map();
+  private undertakings: Map<string, Undertaking> = new Map();
+  private evidence: Map<string, UndertakingEvidence[]> = new Map();
+  private verifications: Map<string, UndertakingVerification[]> = new Map();
 
   constructor() {
     this.seed();
@@ -468,11 +496,109 @@ export class InMemoryStore implements IStore {
     return { tampered: true, entryId: targetEntry.id };
   }
 
+  // Undertakings & Renewals (Part 4)
+  async createUndertaking(data: {
+    applicationId: string;
+    conditionText: string;
+    dueDate?: string;
+    createdBy?: string;
+    id?: string;
+    status?: UndertakingStatus;
+  }): Promise<Undertaking> {
+    const id = data.id || `UT-${data.applicationId}-${Date.now().toString().slice(-6)}`;
+    const now = new Date();
+    const dueDate =
+      data.dueDate ||
+      new Date(now.getTime() + DEFAULT_UNDERTAKING_DURATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const undertaking: Undertaking = {
+      id,
+      applicationId: data.applicationId,
+      conditionText: data.conditionText,
+      dueDate,
+      status: data.status || 'PENDING',
+      createdBy: data.createdBy || 'system',
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
+    this.undertakings.set(id, undertaking);
+    return JSON.parse(JSON.stringify(undertaking));
+  }
+
+  async getUndertaking(id: string): Promise<Undertaking | null> {
+    const u = this.undertakings.get(id);
+    if (!u) return null;
+    const cloned = JSON.parse(JSON.stringify(u)) as Undertaking;
+    cloned.evidence = await this.getEvidence(id);
+    cloned.verifications = await this.getVerifications(id);
+    return cloned;
+  }
+
+  async listUndertakings(filters?: {
+    applicationId?: string;
+    status?: UndertakingStatus;
+  }): Promise<Undertaking[]> {
+    let list = Array.from(this.undertakings.values());
+    if (filters?.applicationId) {
+      list = list.filter((u) => u.applicationId === filters.applicationId);
+    }
+    if (filters?.status) {
+      list = list.filter((u) => u.status === filters.status);
+    }
+    const populated = await Promise.all(
+      list.map(async (u) => {
+        const cloned = JSON.parse(JSON.stringify(u)) as Undertaking;
+        cloned.evidence = await this.getEvidence(u.id);
+        cloned.verifications = await this.getVerifications(u.id);
+        return cloned;
+      })
+    );
+    return populated.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async updateUndertaking(id: string, updates: Partial<Undertaking>): Promise<Undertaking | null> {
+    const existing = this.undertakings.get(id);
+    if (!existing) return null;
+    const updated: Undertaking = {
+      ...existing,
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    };
+    this.undertakings.set(id, updated);
+    return this.getUndertaking(id);
+  }
+
+  async saveEvidence(evidence: UndertakingEvidence): Promise<UndertakingEvidence> {
+    const list = this.evidence.get(evidence.undertakingId) || [];
+    list.push(JSON.parse(JSON.stringify(evidence)));
+    this.evidence.set(evidence.undertakingId, list);
+    return JSON.parse(JSON.stringify(evidence));
+  }
+
+  async getEvidence(undertakingId: string): Promise<UndertakingEvidence[]> {
+    const list = this.evidence.get(undertakingId) || [];
+    return JSON.parse(JSON.stringify(list));
+  }
+
+  async saveVerification(verification: UndertakingVerification): Promise<UndertakingVerification> {
+    const list = this.verifications.get(verification.undertakingId) || [];
+    list.push(JSON.parse(JSON.stringify(verification)));
+    this.verifications.set(verification.undertakingId, list);
+    return JSON.parse(JSON.stringify(verification));
+  }
+
+  async getVerifications(undertakingId: string): Promise<UndertakingVerification[]> {
+    const list = this.verifications.get(undertakingId) || [];
+    return JSON.parse(JSON.stringify(list));
+  }
+
   seed(): void {
     this.applications.clear();
     this.documents.clear();
     this.complianceDocuments.clear();
     this.notifications.clear();
+    this.undertakings.clear();
+    this.evidence.clear();
+    this.verifications.clear();
     this.signoffs.clear();
     this.ledger.clear();
     this.inspectors.clear();
@@ -1337,6 +1463,168 @@ export class InMemoryStore implements IStore {
       this.inspections.set(delayedAssignment.id, delayedAssignment);
       appDel.scheduledInspection = delayedAssignment;
       this.applications.set(appDel.id, appDel);
+    }
+
+    // -------------------------------------------------------------
+    // Part 4 Demo Top-Up (Idempotent: insert only what is missing)
+    // Labelled demo data for undertakings in each status + expiring/expired docs
+    // -------------------------------------------------------------
+    // 1. Expiring document in warning tier
+    if (!this.complianceDocuments.has('COMP-DEMO-EXPIRING')) {
+      const expiringDoc: ComplianceDocument = {
+        id: 'COMP-DEMO-EXPIRING',
+        applicationId: 'APP-2024-001',
+        docType: 'FIRE_NOC',
+        expiryDate: inDays(45),
+        state: 'WARNING',
+        tier: 60,
+        daysRemaining: 45,
+        lastCheckedAt: new Date().toISOString(),
+      };
+      this.complianceDocuments.set(expiringDoc.id, expiringDoc);
+    }
+
+    // 2. Expired document with locked application
+    if (!this.complianceDocuments.has('COMP-DEMO-EXPIRED')) {
+      const expiredDoc: ComplianceDocument = {
+        id: 'COMP-DEMO-EXPIRED',
+        applicationId: 'APP-2024-002',
+        docType: 'FIRE_NOC',
+        expiryDate: pastDays(10),
+        state: 'OVERDUE',
+        daysRemaining: -10,
+        lastCheckedAt: new Date().toISOString(),
+      };
+      this.complianceDocuments.set(expiredDoc.id, expiredDoc);
+      const app2 = this.applications.get('APP-2024-002');
+      if (app2) {
+        app2.locked = true;
+        this.applications.set(app2.id, app2);
+      }
+    }
+
+    // 3. Undertakings in EACH status
+    // PENDING
+    if (!this.undertakings.has('UT-DEMO-PENDING')) {
+      const utPending: Undertaking = {
+        id: 'UT-DEMO-PENDING',
+        applicationId: 'APP-2024-001',
+        conditionText: 'Demo: Submit fire safety equipment maintenance certificate and proof of annual inspection.',
+        dueDate: inDays(20),
+        status: 'PENDING',
+        createdBy: 'officer.north@aicte.gov.in',
+        createdAt: new Date(now - 3 * day).toISOString(),
+        updatedAt: new Date(now - 3 * day).toISOString(),
+      };
+      this.undertakings.set(utPending.id, utPending);
+    }
+
+    // SUBMITTED (with evidence)
+    if (!this.undertakings.has('UT-DEMO-SUBMITTED')) {
+      const utSubmitted: Undertaking = {
+        id: 'UT-DEMO-SUBMITTED',
+        applicationId: 'APP-2024-002',
+        conditionText: 'Demo: Submit revised building accessibility compliance affidavit for differently-abled students.',
+        dueDate: inDays(10),
+        status: 'SUBMITTED',
+        createdBy: 'officer.west@aicte.gov.in',
+        createdAt: new Date(now - 4 * day).toISOString(),
+        updatedAt: new Date(now - 2 * day).toISOString(),
+      };
+      this.undertakings.set(utSubmitted.id, utSubmitted);
+      const evd1: UndertakingEvidence = {
+        id: 'EVD-DEMO-01',
+        undertakingId: utSubmitted.id,
+        fileName: 'accessibility_affidavit_signed.pdf',
+        fileHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        storageRef: '/uploads/accessibility_affidavit_signed.pdf',
+        submittedBy: 'kaveri.poly@aicte.gov.in',
+        submittedAt: new Date(now - 2 * day).toISOString(),
+      };
+      this.evidence.set(utSubmitted.id, [evd1]);
+    }
+
+    // VERIFIED (with evidence and verification)
+    if (!this.undertakings.has('UT-DEMO-VERIFIED')) {
+      const utVerified: Undertaking = {
+        id: 'UT-DEMO-VERIFIED',
+        applicationId: 'APP-2024-003',
+        conditionText: 'Demo: Submit proof of upgraded laboratory safety exhaust systems.',
+        dueDate: inDays(15),
+        status: 'VERIFIED',
+        createdBy: 'officer.west@aicte.gov.in',
+        createdAt: new Date(now - 7 * day).toISOString(),
+        updatedAt: new Date(now - 3 * day).toISOString(),
+      };
+      this.undertakings.set(utVerified.id, utVerified);
+      const evd2: UndertakingEvidence = {
+        id: 'EVD-DEMO-02',
+        undertakingId: utVerified.id,
+        fileName: 'lab_safety_exhaust_installation_proof.pdf',
+        fileHash: '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8',
+        storageRef: '/uploads/lab_safety_exhaust_installation_proof.pdf',
+        submittedBy: 'vjti@mumbai.edu',
+        submittedAt: new Date(now - 5 * day).toISOString(),
+      };
+      this.evidence.set(utVerified.id, [evd2]);
+      const verif1: UndertakingVerification = {
+        id: 'VERIF-DEMO-01',
+        undertakingId: utVerified.id,
+        officer: 'officer.west@aicte.gov.in',
+        decision: 'VERIFIED',
+        remarks: 'Verified against engineering compliance specification. All norms fulfilled.',
+        timestamp: new Date(now - 3 * day).toISOString(),
+      };
+      this.verifications.set(utVerified.id, [verif1]);
+    }
+
+    // REJECTED (with evidence and verification with remarks)
+    if (!this.undertakings.has('UT-DEMO-REJECTED')) {
+      const utRejected: Undertaking = {
+        id: 'UT-DEMO-REJECTED',
+        applicationId: 'APP-2024-004',
+        conditionText: 'Demo: Submit certified structural stability report from empanelled engineer.',
+        dueDate: inDays(5),
+        status: 'REJECTED',
+        createdBy: 'officer.west@aicte.gov.in',
+        createdAt: new Date(now - 8 * day).toISOString(),
+        updatedAt: new Date(now - 1 * day).toISOString(),
+      };
+      this.undertakings.set(utRejected.id, utRejected);
+      const evd3: UndertakingEvidence = {
+        id: 'EVD-DEMO-03',
+        undertakingId: utRejected.id,
+        fileName: 'unverified_stability_draft.pdf',
+        fileHash: '4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a',
+        storageRef: '/uploads/unverified_stability_draft.pdf',
+        submittedBy: 'kaveri.poly@aicte.gov.in',
+        submittedAt: new Date(now - 4 * day).toISOString(),
+      };
+      this.evidence.set(utRejected.id, [evd3]);
+      const verif2: UndertakingVerification = {
+        id: 'VERIF-DEMO-02',
+        undertakingId: utRejected.id,
+        officer: 'officer.west@aicte.gov.in',
+        decision: 'REJECTED',
+        remarks: 'Report is missing engineer registration seal and structural load calculation sheet.',
+        timestamp: new Date(now - 1 * day).toISOString(),
+      };
+      this.verifications.set(utRejected.id, [verif2]);
+    }
+
+    // OVERDUE
+    if (!this.undertakings.has('UT-DEMO-OVERDUE')) {
+      const utOverdue: Undertaking = {
+        id: 'UT-DEMO-OVERDUE',
+        applicationId: 'APP-DEMO-SCRUTINY',
+        conditionText: 'Demo: Submit faculty roster signed by university registrar.',
+        dueDate: pastDays(5),
+        status: 'OVERDUE',
+        createdBy: 'officer.west@aicte.gov.in',
+        createdAt: new Date(now - 20 * day).toISOString(),
+        updatedAt: new Date(now - 5 * day).toISOString(),
+      };
+      this.undertakings.set(utOverdue.id, utOverdue);
     }
   }
 }

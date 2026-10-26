@@ -53,9 +53,24 @@ Route metadata is derived at response time and not persisted. Returns are stored
 | Route sequence in institution application view, officer advance view and case summary | Built | `frontend/src/components/RouteSequence.tsx` |
 | Stage SLA days (by route stage) | SUBMITTED 2, SCRUTINY 5, EVC_REQUIRED 7, EVC_DONE 3, DECISION 5, APPEAL_SHC 5, APPEAL_SAC 5, DEFICIENT 3 (calendar days). Placeholder pending APH. | `backend/src/config/sla-config.ts` (`DEFAULT_STAGE_DAYS`, `ROUTE_STAGE_DAYS` derived from `APPROVAL_ROUTES`) | B - pendency |
 | Approaching threshold | 3 days left, or 80% of the route window elapsed. Placeholder pending APH. | `backend/src/config/sla-config.ts` (`APPROACHING_DAYS_LEFT`, `APPROACHING_THRESHOLD_FRACTION`) | B - pendency |
+| Undertaking default duration | 30 calendar days | `backend/src/config/undertakings.ts` (`DEFAULT_UNDERTAKING_DURATION_DAYS`) | D - undertakings |
+| Renewal validity: FIRE_NOC | 365 calendar days (1 year) | `backend/src/config/undertakings.ts` (`RENEWAL_VALIDITY_PERIODS.FIRE_NOC`) | E - renewals |
+| Renewal validity: LEASE_DEED | 1,095 calendar days (3 years) | `backend/src/config/undertakings.ts` (`RENEWAL_VALIDITY_PERIODS.LEASE_DEED`) | E - renewals |
+| Renewal validity: LAND_RECORD | 1,825 calendar days (5 years) | `backend/src/config/undertakings.ts` (`RENEWAL_VALIDITY_PERIODS.LAND_RECORD`) | E - renewals |
+| Renewal validity: default | 365 calendar days | `backend/src/config/undertakings.ts` (`DEFAULT_RENEWAL_VALIDITY_DAYS`) | E - renewals |
+
+## Implementation Status and Remaining Gaps
+
+| Concern | Status | Location or plan |
+| :--- | :--- | :--- |
+| Four PS approval routes and full stage sequences | Built with placeholders | `backend/src/config/routes.ts` (`APPROVAL_ROUTES`) |
+| Application-type route mapping, including first-class `APPEAL`, and rejected/appeal override | Built with placeholders | `backend/src/config/routes.ts` (`TYPE_ROUTE_MAP`, `STATUS_ROUTE_MAP`) |
+| Route sequence in institution application view, officer advance view and case summary | Built | `frontend/src/components/RouteSequence.tsx` |
+| Stage SLA days (by route stage) | SUBMITTED 2, SCRUTINY 5, EVC_REQUIRED 7, EVC_DONE 3, DECISION 5, APPEAL_SHC 5, APPEAL_SAC 5, DEFICIENT 3 (calendar days). Placeholder pending APH. | `backend/src/config/sla-config.ts` (`DEFAULT_STAGE_DAYS`, `ROUTE_STAGE_DAYS` derived from `APPROVAL_ROUTES`) | B - pendency |
+| Approaching threshold | 3 days left, or 80% of the route window elapsed. Placeholder pending APH. | `backend/src/config/sla-config.ts` (`APPROACHING_DAYS_LEFT`, `APPROACHING_THRESHOLD_FRACTION`) | B - pendency |
 | Ageing bucket edges | 0-3, 4-7, 8-14, 15-30, >30 calendar days. Edges at 3, 7, 14, 30. Placeholder pending APH. | `backend/src/config/sla-config.ts` (`AGEING_BUCKET_EDGES`) | B - pendency |
-| Undertaking due-date rules | Not built | Part 4 config/model |
-| Renewal validity periods | Not built | Part 4 config/model |
+| Undertaking due-date rules | Built with placeholders | `backend/src/config/undertakings.ts` |
+| Renewal validity periods | Built with placeholders | `backend/src/config/undertakings.ts` |
 
 ## Other Assumptions
 

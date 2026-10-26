@@ -8,6 +8,13 @@
       "when": 1792994207585,
       "tag": "0000_silly_invaders",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793040000000,
+      "tag": "0001_undertakings_renewals",
+      "breakpoints": true
     }
   ]
 }

@@ -29,6 +29,7 @@ import {
   ComplianceDocument,
   DocumentMetadata,
   DocumentType,
+  Undertaking,
 } from '../../lib/types';
 import {
   getApplications,
@@ -37,6 +38,9 @@ import {
   getDocuments,
   runExtract,
   getCompliance,
+  getUndertakings,
+  uploadUndertakingEvidence,
+  submitRenewal,
 } from '../../lib/api';
 import { StatusBadge } from '../../components/StatusBadge';
 import { SlaBadge } from '../../components/SlaBadge';
@@ -50,16 +54,19 @@ export default function InstitutionPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedApp, setSelectedApp] = useState<Application | null>(null);
-  const [activeDrawerTab, setActiveDrawerTab] = useState<'overview' | 'documents' | 'compliance'>('overview');
+  const [activeDrawerTab, setActiveDrawerTab] = useState<'overview' | 'documents' | 'compliance' | 'undertakings'>('overview');
 
-  // Documents & Compliance state for selected app
+  // Documents, Compliance & Undertakings state for selected app
   const [appDocuments, setAppDocuments] = useState<DocumentMetadata[]>([]);
   const [appCompliance, setAppCompliance] = useState<ComplianceDocument[]>([]);
+  const [appUndertakings, setAppUndertakings] = useState<Undertaking[]>([]);
   const [loadingDrawerData, setLoadingDrawerData] = useState(false);
   const [extracting, setExtracting] = useState(false);
 
   // Upload state
   const [uploadingDocType, setUploadingDocType] = useState<DocumentType | null>(null);
+  const [uploadingUndertakingId, setUploadingUndertakingId] = useState<string | null>(null);
+  const [renewingDocId, setRenewingDocId] = useState<string | null>(null);
   const [uploadSuccessMsg, setUploadSuccessMsg] = useState<string | null>(null);
 
   // New Application Dialog state
@@ -99,26 +106,29 @@ export default function InstitutionPage() {
     loadData();
   }, []);
 
-  // When an app is selected in drawer, fetch its uploaded documents and compliance
+  // When an app is selected in drawer, fetch its uploaded documents, compliance, and undertakings
   useEffect(() => {
     if (!selectedApp) return;
 
     const fetchDetails = async () => {
       setLoadingDrawerData(true);
       try {
-        const [docsRes, compRes] = await Promise.all([
+        const [docsRes, compRes, utRes] = await Promise.all([
           getDocuments(selectedApp.id),
           getCompliance(selectedApp.id),
+          getUndertakings(selectedApp.id),
         ]);
         setAppDocuments(docsRes.data || []);
         setAppCompliance(compRes.data?.documents || []);
+        setAppUndertakings(utRes.data || []);
       } catch (err) {
         setAppDocuments([]);
         setAppCompliance([]);
+        setAppUndertakings([]);
         setLoadError(
           err instanceof Error
             ? err.message
-            : 'Unable to load documents for this application.'
+            : 'Unable to load details for this application.'
         );
       } finally {
         setLoadingDrawerData(false);
@@ -180,6 +190,55 @@ export default function InstitutionPage() {
       alert(`Upload failed: ${msg}`);
     } finally {
       setUploadingDocType(null);
+    }
+  };
+
+  const handleUndertakingEvidenceUpload = async (undertakingId: string, file: File) => {
+    if (!selectedApp) return;
+    setUploadingUndertakingId(undertakingId);
+    setUploadSuccessMsg(null);
+
+    try {
+      const res = await uploadUndertakingEvidence(undertakingId, file);
+      if (res.data) {
+        const ev = res.data.undertaking.evidence && res.data.undertaking.evidence.length > 0
+          ? res.data.undertaking.evidence[res.data.undertaking.evidence.length - 1]
+          : null;
+        setUploadSuccessMsg(
+          `Evidence "${file.name}" uploaded.${ev ? ` Hash ${shortHash(ev.fileHash, 8)} posted to ledger.` : ''}`
+        );
+        const utRes = await getUndertakings(selectedApp.id);
+        setAppUndertakings(utRes.data || []);
+        setTimeout(() => setUploadSuccessMsg(null), 6000);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`Evidence upload failed: ${msg}`);
+    } finally {
+      setUploadingUndertakingId(null);
+    }
+  };
+
+  const handleRenewalSubmit = async (complianceDocId: string, file: File) => {
+    if (!selectedApp) return;
+    setRenewingDocId(complianceDocId);
+    setUploadSuccessMsg(null);
+
+    try {
+      const res = await submitRenewal(complianceDocId, file);
+      if (res.data) {
+        setUploadSuccessMsg(
+          `Renewal for "${file.name}" submitted. Awaiting officer verification queue.`
+        );
+        const compRes = await getCompliance(selectedApp.id);
+        setAppCompliance(compRes.data?.documents || []);
+        setTimeout(() => setUploadSuccessMsg(null), 6000);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`Renewal submission failed: ${msg}`);
+    } finally {
+      setRenewingDocId(null);
     }
   };
 
@@ -435,6 +494,22 @@ export default function InstitutionPage() {
               >
                 <span>Compliance & Expiry</span>
                 {appCompliance.some((c) => c.state === 'OVERDUE') && (
+                  <span className="w-2 h-2 rounded-full bg-red-600 animate-ping" />
+                )}
+              </button>
+              <button
+                onClick={() => setActiveDrawerTab('undertakings')}
+                className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+                  activeDrawerTab === 'undertakings'
+                    ? 'border-gov-blue-900 text-gov-blue-900'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <span>Undertakings & Conditions</span>
+                <span className="bg-slate-200 text-slate-700 px-1.5 py-0.2 rounded-full text-[10px]">
+                  {appUndertakings.length}
+                </span>
+                {appUndertakings.some((u) => u.status === 'OVERDUE') && (
                   <span className="w-2 h-2 rounded-full bg-red-600 animate-ping" />
                 )}
               </button>
@@ -715,6 +790,7 @@ export default function InstitutionPage() {
                       {appCompliance.map((comp) => {
                         const isOverdue = comp.state === 'OVERDUE';
                         const isWarning = comp.state === 'WARNING';
+                        const isRenewing = renewingDocId === comp.id;
 
                         return (
                           <div
@@ -763,9 +839,219 @@ export default function InstitutionPage() {
                               </div>
                             </div>
 
+                            {/* Renewal status info */}
+                            {comp.renewalStatus && (
+                              <div className="p-2.5 rounded-lg bg-white/80 border border-slate-200 text-xs space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                    Renewal Status
+                                  </span>
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold uppercase ${
+                                      comp.renewalStatus === 'VERIFIED'
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : comp.renewalStatus === 'REJECTED'
+                                        ? 'bg-red-100 text-red-800'
+                                        : 'bg-blue-100 text-blue-800'
+                                    }`}
+                                  >
+                                    {comp.renewalStatus}
+                                  </span>
+                                </div>
+                                {comp.renewalEvidence && (
+                                  <div className="text-[11px] text-slate-600">
+                                    <span>File: {comp.renewalEvidence.fileName}</span>
+                                    <span className="block font-mono text-[10px] text-slate-400">
+                                      SHA: {shortHash(comp.renewalEvidence.fileHash, 8)}
+                                    </span>
+                                  </div>
+                                )}
+                                {comp.renewalVerification?.remarks && (
+                                  <p className="text-[11px] text-slate-700 italic">
+                                    Officer: "{comp.renewalVerification.remarks}"
+                                  </p>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Renewal upload button */}
+                            {(isWarning || isOverdue || comp.renewalStatus === 'REJECTED' || !comp.renewalStatus) && (
+                              <div className="pt-2 border-t border-slate-200/50">
+                                <label className="w-full cursor-pointer inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-gov-blue-900 text-white text-xs font-semibold hover:bg-gov-blue-800 transition-colors">
+                                  {isRenewing ? (
+                                    <span className="flex items-center gap-1">
+                                      <RefreshCw className="w-3 h-3 animate-spin" /> Uploading Renewal...
+                                    </span>
+                                  ) : (
+                                    <span className="flex items-center gap-1">
+                                      <UploadCloud className="w-3.5 h-3.5" /> Submit Renewed Document
+                                    </span>
+                                  )}
+                                  <input
+                                    type="file"
+                                    accept=".pdf,.png,.jpg,.jpeg"
+                                    disabled={isRenewing}
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) handleRenewalSubmit(comp.id, file);
+                                    }}
+                                  />
+                                </label>
+                              </div>
+                            )}
+
                             <div className="pt-2 border-t border-slate-200/50 text-[10px] text-slate-400">
                               Checked: {formatDate(comp.lastCheckedAt)}
                             </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 4: UNDERTAKINGS & CONDITIONS */}
+              {activeDrawerTab === 'undertakings' && (
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Conditional Undertakings ({appUndertakings.length})
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      Commitments required under AICTE Approval Process Handbook (APH). Upload evidence before due date to prevent escalation and compliance locks.
+                    </p>
+                  </div>
+
+                  {appUndertakings.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-slate-200">
+                      No conditional undertakings recorded for this application.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {appUndertakings.map((u) => {
+                        const isOverdue = u.status === 'OVERDUE';
+                        const isVerified = u.status === 'VERIFIED';
+                        const isSubmitted = u.status === 'SUBMITTED';
+                        const isRejected = u.status === 'REJECTED';
+                        const isPending = u.status === 'PENDING';
+                        const isUploadingThis = uploadingUndertakingId === u.id;
+                        const latestEvidence = u.evidence && u.evidence.length > 0 ? u.evidence[u.evidence.length - 1] : null;
+                        const latestVerif = u.verifications && u.verifications.length > 0 ? u.verifications[u.verifications.length - 1] : null;
+
+                        return (
+                          <div
+                            key={u.id}
+                            className={`p-4 rounded-xl border transition-all ${
+                              isOverdue
+                                ? 'bg-red-50/70 border-red-300'
+                                : isVerified
+                                ? 'bg-emerald-50/50 border-emerald-200'
+                                : isRejected
+                                ? 'bg-rose-50/70 border-rose-300'
+                                : isSubmitted
+                                ? 'bg-blue-50/50 border-blue-200'
+                                : 'bg-amber-50/50 border-amber-200'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="space-y-1 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-[10px] font-bold text-gov-blue-800 bg-blue-100 px-1.5 py-0.5 rounded">
+                                    {u.id}
+                                  </span>
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase ${
+                                      isVerified
+                                        ? 'bg-emerald-600 text-white'
+                                        : isOverdue
+                                        ? 'bg-red-600 text-white'
+                                        : isRejected
+                                        ? 'bg-rose-600 text-white'
+                                        : isSubmitted
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-amber-600 text-white'
+                                    }`}
+                                  >
+                                    {u.status}
+                                  </span>
+                                </div>
+                                <p className="text-xs font-semibold text-slate-800 leading-snug">
+                                  {u.conditionText}
+                                </p>
+                              </div>
+
+                              <div className="text-right flex-shrink-0">
+                                <span className="text-[10px] uppercase font-bold text-slate-400 block">Due Date</span>
+                                <span className={`text-xs font-mono font-bold ${isOverdue ? 'text-red-700' : 'text-slate-800'}`}>
+                                  {formatDate(u.dueDate)}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Evidence block if present */}
+                            {latestEvidence && (
+                              <div className="mt-3 p-2.5 rounded-lg bg-white/90 border border-slate-200 text-xs space-y-1">
+                                <div className="flex items-center justify-between text-slate-700">
+                                  <span className="font-semibold flex items-center gap-1.5">
+                                    <FileCheck className="w-3.5 h-3.5 text-emerald-600" />
+                                    {latestEvidence.fileName}
+                                  </span>
+                                  <span className="font-mono text-[10px] text-gov-blue-900 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200" title={latestEvidence.fileHash}>
+                                    SHA: {shortHash(latestEvidence.fileHash, 8)}
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-slate-400">
+                                  Submitted by {latestEvidence.submittedBy} on {formatDate(latestEvidence.submittedAt)}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Officer verification feedback if present */}
+                            {latestVerif && (
+                              <div className={`mt-2 p-2.5 rounded-lg border text-xs ${
+                                latestVerif.decision === 'VERIFIED' ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-red-50 border-red-200 text-red-900'
+                              }`}>
+                                <div className="font-bold flex items-center justify-between">
+                                  <span>Officer Decision: {latestVerif.decision}</span>
+                                  <span className="text-[10px] font-normal">{formatDate(latestVerif.timestamp)}</span>
+                                </div>
+                                {latestVerif.remarks && (
+                                  <p className="mt-0.5 text-[11px] italic">"{latestVerif.remarks}"</p>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Upload / Re-upload Evidence action */}
+                            {!isVerified && (
+                              <div className="mt-3 pt-2 border-t border-slate-200/60 flex items-center justify-between">
+                                <span className="text-[11px] text-slate-500">
+                                  {isSubmitted ? 'Evidence submitted; you may re-upload a revised document if needed.' : 'Upload official signed evidence (PDF, PNG, JPG ≤ 10MB):'}
+                                </span>
+                                <label className="cursor-pointer inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-gov-blue-900 hover:bg-gov-blue-800 text-white text-xs font-semibold shadow-xs transition-colors">
+                                  {isUploadingThis ? (
+                                    <span className="flex items-center gap-1">
+                                      <RefreshCw className="w-3 h-3 animate-spin" /> Uploading...
+                                    </span>
+                                  ) : (
+                                    <span className="flex items-center gap-1">
+                                      <UploadCloud className="w-3.5 h-3.5" /> {latestEvidence ? 'Re-upload Evidence' : 'Upload Evidence'}
+                                    </span>
+                                  )}
+                                  <input
+                                    type="file"
+                                    accept=".pdf,.png,.jpg,.jpeg"
+                                    disabled={isUploadingThis}
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) handleUndertakingEvidenceUpload(u.id, file);
+                                    }}
+                                  />
+                                </label>
+                              </div>
+                            )}
                           </div>
                         );
                       })}

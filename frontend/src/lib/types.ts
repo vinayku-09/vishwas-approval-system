@@ -94,6 +94,60 @@ export interface ComplianceDocument {
   daysRemaining: number;
   lastCheckedAt: string;
   authenticityDueAt?: string;
+  renewalStatus?: 'SUBMITTED' | 'VERIFIED' | 'REJECTED';
+  renewalEvidence?: {
+    fileName: string;
+    fileHash: string;
+    storageRef: string;
+    submittedBy: string;
+    submittedAt: string;
+    proposedValidityDate?: string;
+  };
+  renewalVerification?: {
+    officer: string;
+    decision: 'VERIFIED' | 'REJECTED';
+    remarks?: string;
+    timestamp: string;
+  };
+}
+
+export type UndertakingStatus = 'PENDING' | 'SUBMITTED' | 'VERIFIED' | 'REJECTED' | 'OVERDUE';
+
+export interface Undertaking {
+  id: string;
+  applicationId: string;
+  conditionText: string;
+  dueDate: string;
+  status: UndertakingStatus;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  evidence?: UndertakingEvidence[];
+  verifications?: UndertakingVerification[];
+}
+
+export interface UndertakingEvidence {
+  id: string;
+  undertakingId: string;
+  fileName: string;
+  fileHash: string;
+  storageRef: string;
+  submittedBy: string;
+  submittedAt: string;
+}
+
+export interface UndertakingVerification {
+  id: string;
+  undertakingId: string;
+  officer: string;
+  decision: 'VERIFIED' | 'REJECTED';
+  remarks: string;
+  timestamp: string;
+}
+
+export interface VerificationQueueData {
+  undertakings: Undertaking[];
+  renewals: (ComplianceDocument & { institutionName?: string; region?: string })[];
 }
 
 export interface Notification {
