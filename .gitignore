@@ -28,3 +28,6 @@ yarn-error.log*
 # System files
 .DS_Store
 Thumbs.db
+
+# TypeScript incremental build info
+*.tsbuildinfo
