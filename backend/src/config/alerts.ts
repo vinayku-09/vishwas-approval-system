@@ -8,6 +8,9 @@
  *
  * The engine (services/alerts.ts) and cron route import these values only, so
  * changing alert policy never requires touching dispatch logic.
+ *
+ * Every offset, delay, role and region below is a placeholder pending the AICTE
+ * Approval Process Handbook (APH). These are not official AICTE rules.
  */
 
 import { AlertEventType, Region, UserRole } from '../types.js';

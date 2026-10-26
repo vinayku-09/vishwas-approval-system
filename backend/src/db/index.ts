@@ -15,12 +15,14 @@ export function initializeStore(): IStore {
     if (!(store instanceof InMemoryStore)) {
       setStore(new InMemoryStore());
     }
+    console.log('[AICTE Approval Backend] Store: IN-MEMORY (DATABASE_URL not set)');
     return store;
   }
 
   if (!postgresStore) {
     postgresStore = new PostgresStore(databaseUrl);
     setStore(postgresStore);
+    console.log('[AICTE Approval Backend] Store: POSTGRES (DATABASE_URL configured)');
   }
   return store;
 }

@@ -7,11 +7,14 @@
  * propagates automatically to SLA calculation, expiry computation, cron
  * secret fallback, and JWT dev-fallback.
  *
- * Reference: AICTE Approval Process Handbook (APH) 2024-25
+ * All values in this file are placeholders pending the AICTE Approval Process
+ * Handbook (APH). They are not official AICTE rules and must be reviewed before
+ * production use. See docs/assumptions.md.
  */
 
 // ---------------------------------------------------------------------------
 // SLA (Service Level Agreement) Configuration
+// Placeholder pending APH (PS area B) - not an official AICTE rule.
 // ---------------------------------------------------------------------------
 
 /** Total calendar days an officer has to process a NEW application. */
@@ -30,7 +33,8 @@ export const SLA_WINDOW_DAYS_INTAKE_CHANGE = 21;
 export const SLA_WARNING_THRESHOLD = 0.8;
 
 // ---------------------------------------------------------------------------
-// Compliance Document Expiry Warning Tiers (AICTE APH Clause 7)
+// Compliance Document Expiry Warning Tiers
+// Placeholder pending APH (PS areas D/E) - not an official AICTE rule.
 // ---------------------------------------------------------------------------
 
 /** First warning tier: issue WARNING when ≤ 90 days remain. */
@@ -46,7 +50,8 @@ export const EXPIRY_TIER_LOW = 30 as const;
 export const EXPIRY_TIERS = [EXPIRY_TIER_HIGH, EXPIRY_TIER_MEDIUM, EXPIRY_TIER_LOW] as const;
 
 // ---------------------------------------------------------------------------
-// AICTE Scrutiny Rule Thresholds (AICTE APH 2024-25)
+// AICTE Scrutiny Rule Thresholds
+// Placeholder pending APH (PS areas A/C) - not official AICTE rules.
 // ---------------------------------------------------------------------------
 
 /** Minimum campus land area in square metres (APH Clause 4.1). */
@@ -101,6 +106,7 @@ export function resolveJwtSecret(): string {
 
 // ---------------------------------------------------------------------------
 // Inspection / Scheduling Configuration
+// Prototype scheduling assumptions (PS area C) - not official AICTE rules.
 // ---------------------------------------------------------------------------
 
 /** Duration of a physical campus inspection in hours. */

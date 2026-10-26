@@ -99,18 +99,23 @@ function createLiveTransport(): Transporter {
   });
 }
 
+export function resolveAlertRecipient(to: string, override = process.env.ALERT_EMAIL_OVERRIDE): string {
+  return (override?.trim() || to).trim();
+}
+
 async function sendOnce(email: AlertEmail): Promise<AlertEmailResult> {
   const mode = getMailMode();
   const from = process.env.MAIL_FROM || 'no-reply@vishwas.local';
+  const recipient = resolveAlertRecipient(email.to);
 
-  if (!email.to) {
+  if (!recipient) {
     return { status: 'SKIPPED', error: 'No recipient configured' };
   }
 
   if (mode === 'log') {
     // Log mode prints the full message. This is the safe default for dev/demo.
     console.info(
-      `[mail:log] to=${email.to} subject="${email.subject}"\n${email.text}`
+      `[mail:log] to=${recipient} subject="${email.subject}"\n${email.text}`
     );
     return { status: 'SENT' };
   }
@@ -126,7 +131,7 @@ async function sendOnce(email: AlertEmail): Promise<AlertEmailResult> {
       });
       const info = await transporter.sendMail({
         from,
-        to: email.to,
+        to: recipient,
         subject: email.subject,
         text: email.text,
       });
@@ -145,7 +150,7 @@ async function sendOnce(email: AlertEmail): Promise<AlertEmailResult> {
     const transporter = createLiveTransport();
     await transporter.sendMail({
       from,
-      to: email.to,
+      to: recipient,
       subject: email.subject,
       text: email.text,
     });
