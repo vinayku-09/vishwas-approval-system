@@ -98,3 +98,14 @@ export const ledgerTable = pgTable('ledger', {
   hash: text('hash').notNull(),
   index: integer('chain_index').notNull(),
 });
+
+export const usersTable = pgTable('users', {
+  id: text('id').primaryKey(),
+  email: text('email').notNull().unique(),
+  passwordHash: text('password_hash').notNull(),
+  name: text('name').notNull(),
+  role: text('role').notNull(), // INSTITUTION | OFFICER | COMMITTEE | CHIEF
+  institutionName: text('institution_name'),
+  inspectorId: text('inspector_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});

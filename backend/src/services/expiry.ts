@@ -1,4 +1,5 @@
 import { ExpiryState, WarningTier } from '../types.js';
+import { EXPIRY_TIER_HIGH, EXPIRY_TIER_MEDIUM, EXPIRY_TIER_LOW } from '../config/timelines.js';
 
 export interface ExpiryCalculationResult {
   state: ExpiryState;
@@ -45,20 +46,20 @@ export function computeExpiryState(
     };
   }
 
-  if (daysRemaining > 90) {
+  if (daysRemaining > EXPIRY_TIER_HIGH) {
     return {
       state: 'VALID',
       daysRemaining,
     };
   }
 
-  let tier: WarningTier = 90;
-  if (daysRemaining <= 30) {
-    tier = 30;
-  } else if (daysRemaining <= 60) {
-    tier = 60;
+  let tier: WarningTier = EXPIRY_TIER_HIGH;
+  if (daysRemaining <= EXPIRY_TIER_LOW) {
+    tier = EXPIRY_TIER_LOW;
+  } else if (daysRemaining <= EXPIRY_TIER_MEDIUM) {
+    tier = EXPIRY_TIER_MEDIUM;
   } else {
-    tier = 90;
+    tier = EXPIRY_TIER_HIGH;
   }
 
   return {

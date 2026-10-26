@@ -7,6 +7,7 @@ import { cronRouter } from './routes/cron.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { ledgerRouter } from './routes/ledger.js';
 import { schedulingRouter } from './routes/scheduling.js';
+import { authRouter } from './routes/auth.js';
 
 export const app = new Hono();
 
@@ -34,6 +35,7 @@ app.get('/health', (c) => {
 });
 
 // Mount modular subrouters
+app.route('/auth', authRouter);
 app.route('/applications', documentsRouter);
 app.route('/applications', applicationsRouter);
 app.route('/scheduling', schedulingRouter);

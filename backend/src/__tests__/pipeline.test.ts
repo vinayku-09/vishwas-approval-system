@@ -215,6 +215,7 @@ describe('Vishwas Pipeline & Regulatory Tests', () => {
 
       const res = await app.request('/applications/APP-2024-001/documents', {
         method: 'POST',
+        headers: { 'x-role': 'officer' },
         body: formData,
       });
 
@@ -233,6 +234,7 @@ describe('Vishwas Pipeline & Regulatory Tests', () => {
 
       const res = await app.request('/applications/APP-2024-001/documents', {
         method: 'POST',
+        headers: { 'x-role': 'officer' },
         body: formData,
       });
 
@@ -252,6 +254,7 @@ describe('Vishwas Pipeline & Regulatory Tests', () => {
 
       const res = await app.request('/applications/APP-2024-001/documents', {
         method: 'POST',
+        headers: { 'x-role': 'officer' },
         body: formData,
       });
 

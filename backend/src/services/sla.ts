@@ -1,4 +1,5 @@
 import { SlaInfo } from '../types.js';
+import { SLA_WARNING_THRESHOLD } from '../config/timelines.js';
 
 /**
  * Derives SLA compliance status based on creation timestamp and due deadline.
@@ -29,7 +30,7 @@ export function calculateSla(createdAt: string, slaDueAt: string, currentDate = 
     };
   }
 
-  if (elapsedRatio > 0.8) {
+  if (elapsedRatio > SLA_WARNING_THRESHOLD) {
     return {
       status: 'WARNING',
       label: 'Warning',

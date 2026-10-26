@@ -228,7 +228,58 @@ export interface LedgerEntry {
   hash: string;
 }
 
-export type Role = 'institution' | 'officer' | 'committee';
+export type Role =
+  | 'INSTITUTION'
+  | 'OFFICER'
+  | 'COMMITTEE'
+  | 'CHIEF'
+  | 'institution'
+  | 'officer'
+  | 'committee'
+  | 'chief';
+
+export type UserRole = 'INSTITUTION' | 'OFFICER' | 'COMMITTEE' | 'CHIEF';
+
+export interface User {
+  id: string;
+  email: string;
+  passwordHash: string;
+  name: string;
+  role: UserRole;
+  institutionName?: string;
+  inspectorId?: string;
+  createdAt?: string;
+}
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  institutionName?: string;
+  inspectorId?: string;
+}
+
+export interface AuthTokenPayload {
+  sub: string;
+  role: UserRole;
+  name: string;
+  email: string;
+  institutionName?: string;
+  inspectorId?: string;
+  iat?: number;
+  exp?: number;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface LoginResponse {
+  token: string;
+  user: AuthUser;
+}
 
 export interface RuleResult {
   passed: boolean;

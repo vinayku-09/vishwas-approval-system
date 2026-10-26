@@ -1,7 +1,9 @@
 import { Deficiency, ExtractedFields, ExtractedFieldValue, RuleResult } from '../types.js';
+import { RULE_MIN_LAND_AREA_SQM, RULE_LEASE_BUFFER_DAYS } from '../config/timelines.js';
 
-const MIN_LAND_AREA_SQM = 6000; // AICTE APH Chapter I land requirement for Technical Campuses
-const LEASE_BUFFER_DAYS = 90;   // Lease must have >90 days remaining validity
+// Constants are now sourced from config/timelines.ts
+const MIN_LAND_AREA_SQM = RULE_MIN_LAND_AREA_SQM;
+const LEASE_BUFFER_DAYS = RULE_LEASE_BUFFER_DAYS;
 
 /**
  * Rule 1: Minimum Land Area Check

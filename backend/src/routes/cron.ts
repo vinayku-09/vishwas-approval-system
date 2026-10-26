@@ -2,13 +2,14 @@ import { Hono } from 'hono';
 import { store } from '../db/store.js';
 import { computeExpiryState } from '../services/expiry.js';
 import { Notification } from '../types.js';
+import { DEFAULT_CRON_SECRET } from '../config/timelines.js';
 
 export const cronRouter = new Hono();
 
 // POST /cron/expiry-check - daily scheduled job to recompute compliance states & lock overdue applications
 cronRouter.post('/expiry-check', async (c) => {
   const authHeader = c.req.header('authorization') || '';
-  const expectedSecret = process.env.CRON_SECRET || 'dev-cron-secret';
+  const expectedSecret = process.env.CRON_SECRET || DEFAULT_CRON_SECRET;
 
   if (!authHeader.startsWith('Bearer ') || authHeader.slice(7).trim() !== expectedSecret) {
     return c.json({ error: 'Unauthorized: Invalid or missing cron authorization token' }, 401);
@@ -18,6 +19,9 @@ cronRouter.post('/expiry-check', async (c) => {
   const now = new Date();
   let notificationsCreated = 0;
   let lockedApplications = 0;
+
+  // Track which application IDs were touched this run for summary ledger entry
+  const touchedApplicationIds = new Set<string>();
 
   for (const doc of allComplianceDocs) {
     const previousState = doc.state;
@@ -75,6 +79,7 @@ cronRouter.post('/expiry-check', async (c) => {
             state: result.state,
           }
         );
+        touchedApplicationIds.add(doc.applicationId);
       }
     }
 
@@ -88,8 +93,23 @@ cronRouter.post('/expiry-check', async (c) => {
           reason: `Locked due to expired ${doc.docType} (expired: ${doc.expiryDate})`,
           documentId: doc.id,
         });
+        touchedApplicationIds.add(doc.applicationId);
       }
     }
+  }
+
+  // Write a CRON_RUN_COMPLETED ledger entry for each application touched this run.
+  // This creates a durable, hash-chained record that the cron job ran and what it did,
+  // enabling forensic reconstruction of who changed what and when.
+  // Applications with no tier change are not written (idempotent audit).
+  for (const appId of touchedApplicationIds) {
+    await store.recordLedger(appId, 'CRON_RUN_COMPLETED', 'system', {
+      cronJob: 'expiry-check',
+      runAt: now.toISOString(),
+      processedDocuments: allComplianceDocs.filter((d) => d.applicationId === appId).length,
+      notificationsCreated,
+      lockedApplications,
+    });
   }
 
   return c.json({

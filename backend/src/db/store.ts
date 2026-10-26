@@ -13,9 +13,12 @@ import {
   Notification,
   SignoffRecord,
   Status,
+  User,
 } from '../types.js';
+import bcrypt from 'bcryptjs';
 import { createLedgerEntry, GENESIS_HASH } from '../services/ledger.js';
 import { computeExpiryState } from '../services/expiry.js';
+import { SLA_WINDOW_DAYS_NEW } from '../config/timelines.js';
 
 export interface IStore {
   listApplications(filters?: { status?: Status; type?: ApplicationType }): Promise<Application[]>;
@@ -56,6 +59,12 @@ export interface IStore {
   saveInspection(inspection: InspectionAssignment): Promise<InspectionAssignment>;
   saveEvcReport(applicationId: string, report: EvcReport): Promise<EvcReport>;
 
+  // Users & Auth (Phase B)
+  getUserByEmail(email: string): Promise<User | null>;
+  getUserById(id: string): Promise<User | null>;
+  saveUser(user: User): Promise<User>;
+  listUsers(): Promise<User[]>;
+
   // Ledger
   getLedger(applicationId: string): Promise<LedgerEntry[]>;
   recordLedger(
@@ -78,6 +87,7 @@ class InMemoryStore implements IStore {
   private inspectors: Map<string, Inspector> = new Map();
   private affiliations: Map<string, Affiliation> = new Map();
   private inspections: Map<string, InspectionAssignment> = new Map();
+  private users: Map<string, User> = new Map();
 
   constructor() {
     this.seed();
@@ -114,7 +124,7 @@ class InMemoryStore implements IStore {
 
     const now = new Date();
     const createdAt = now.toISOString();
-    const slaDue = new Date(now.getTime() + 21 * 24 * 60 * 60 * 1000);
+    const slaDue = new Date(now.getTime() + SLA_WINDOW_DAYS_NEW * 24 * 60 * 60 * 1000);
     const slaDueAt = slaDue.toISOString();
 
     const application: Application = {
@@ -225,6 +235,31 @@ class InMemoryStore implements IStore {
       this.applications.set(applicationId, app);
     }
     return JSON.parse(JSON.stringify(report));
+  }
+
+  // Users & Auth (Phase B)
+  async getUserByEmail(email: string): Promise<User | null> {
+    const target = email.toLowerCase().trim();
+    for (const u of this.users.values()) {
+      if (u.email.toLowerCase() === target) {
+        return JSON.parse(JSON.stringify(u));
+      }
+    }
+    return null;
+  }
+
+  async getUserById(id: string): Promise<User | null> {
+    const u = this.users.get(id);
+    return u ? JSON.parse(JSON.stringify(u)) : null;
+  }
+
+  async saveUser(user: User): Promise<User> {
+    this.users.set(user.id, JSON.parse(JSON.stringify(user)));
+    return JSON.parse(JSON.stringify(user));
+  }
+
+  async listUsers(): Promise<User[]> {
+    return Array.from(this.users.values()).map((u) => JSON.parse(JSON.stringify(u)));
   }
 
   async saveDocument(doc: DocumentMetadata): Promise<DocumentMetadata> {
@@ -343,6 +378,64 @@ class InMemoryStore implements IStore {
     this.inspectors.clear();
     this.affiliations.clear();
     this.inspections.clear();
+    this.users.clear();
+
+    // -------------------------------------------------------------
+    // Phase B Seeds: Demo Users for each Role
+    // -------------------------------------------------------------
+    const defaultPasswordHash = bcrypt.hashSync('Password123!', 10);
+    const demoUsers: User[] = [
+      {
+        id: 'USR-OFFICER-01',
+        email: 'officer@aicte.gov.in',
+        passwordHash: defaultPasswordHash,
+        name: 'Dr. Arvind Kumar',
+        role: 'OFFICER',
+      },
+      {
+        id: 'USR-COMMITTEE-01',
+        email: 'committee@aicte.gov.in',
+        passwordHash: defaultPasswordHash,
+        name: 'Dr. Sunita Patil',
+        role: 'COMMITTEE',
+        inspectorId: 'INS-002', // Matches seeded assignment INSP-APP-2024-003
+      },
+      {
+        id: 'USR-CHIEF-01',
+        email: 'chief@aicte.gov.in',
+        passwordHash: defaultPasswordHash,
+        name: 'Prof. Anil Sahasrabudhe',
+        role: 'CHIEF',
+      },
+      {
+        id: 'USR-INST-01',
+        email: 'delhi.tech@aicte.gov.in',
+        passwordHash: defaultPasswordHash,
+        name: 'Delhi Institute Director',
+        role: 'INSTITUTION',
+        institutionName: 'Delhi Institute of Advanced Technology & AI',
+      },
+      {
+        id: 'USR-INST-02',
+        email: 'kaveri.poly@aicte.gov.in',
+        passwordHash: defaultPasswordHash,
+        name: 'Kaveri Polytechnic Principal',
+        role: 'INSTITUTION',
+        institutionName: 'Kaveri Polytechnic & Technical Campus',
+      },
+      {
+        id: 'USR-INST-03',
+        email: 'vjti@mumbai.edu',
+        passwordHash: defaultPasswordHash,
+        name: 'VJTI Mumbai Registrar',
+        role: 'INSTITUTION',
+        institutionName: 'Veermata Jijabai Technological Institute (VJTI)',
+      },
+    ];
+
+    for (const u of demoUsers) {
+      this.users.set(u.id, u);
+    }
 
     const now = Date.now();
     const day = 24 * 60 * 60 * 1000;

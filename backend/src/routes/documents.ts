@@ -1,10 +1,13 @@
 import { Hono } from 'hono';
 import { createHash } from 'node:crypto';
 import { store } from '../db/store.js';
-import { DocumentMetadata, DocumentType, Role } from '../types.js';
+import { DocumentMetadata, DocumentType } from '../types.js';
 import { getStorageService } from '../services/storage.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 export const documentsRouter = new Hono();
+
+documentsRouter.use('*', authMiddleware);
 
 const ALLOWED_MIME_TYPES = new Set([
   'application/pdf',
@@ -18,11 +21,16 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 // POST /applications/:id/documents - multipart file upload
 documentsRouter.post('/:id/documents', async (c) => {
   const applicationId = c.req.param('id');
-  const role = (c.req.header('x-role') || 'institution') as Role;
+  const user = c.get('user');
 
   const app = await store.getApplication(applicationId);
   if (!app) {
     return c.json({ error: `Application '${applicationId}' not found` }, 404);
+  }
+
+  // Institution role isolation
+  if (user.role === 'INSTITUTION' && user.institutionName && app.institutionName !== user.institutionName) {
+    return c.json({ error: "Forbidden: Access denied to other institution's application" }, 403);
   }
 
   const body = await c.req.parseBody().catch(() => null);
@@ -88,7 +96,8 @@ documentsRouter.post('/:id/documents', async (c) => {
   await store.saveDocument(metadata);
 
   // Write immutable ledger entry (contains ONLY metadata & cryptographic hash, NEVER file bytes)
-  await store.recordLedger(applicationId, 'DOCUMENT_UPLOADED', role, {
+  const actor = `${user.sub}:${user.role}`;
+  await store.recordLedger(applicationId, 'DOCUMENT_UPLOADED', actor, {
     documentId: metadata.id,
     docType: metadata.docType,
     fileName: metadata.fileName,
@@ -97,6 +106,7 @@ documentsRouter.post('/:id/documents', async (c) => {
     sha256: metadata.sha256,
     storageUrl: metadata.storageUrl,
     uploadedAt: metadata.uploadedAt,
+    uploadedBy: user.email,
   });
 
   return c.json(metadata, 201);
@@ -105,9 +115,16 @@ documentsRouter.post('/:id/documents', async (c) => {
 // GET /applications/:id/documents - list uploaded document metadata
 documentsRouter.get('/:id/documents', async (c) => {
   const applicationId = c.req.param('id');
+  const user = c.get('user');
+
   const app = await store.getApplication(applicationId);
   if (!app) {
     return c.json({ error: `Application '${applicationId}' not found` }, 404);
+  }
+
+  // Institution role isolation
+  if (user.role === 'INSTITUTION' && user.institutionName && app.institutionName !== user.institutionName) {
+    return c.json({ error: "Forbidden: Access denied to other institution's documents" }, 403);
   }
 
   const docs = await store.getDocuments(applicationId);
