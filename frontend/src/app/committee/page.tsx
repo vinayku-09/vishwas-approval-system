@@ -20,7 +20,6 @@ import { Application, EvcReportFindings, InspectionAssignment } from '../../lib/
 import { getApplications, getInspections, submitEvcReport } from '../../lib/api';
 import { INITIAL_MOCK_INSPECTORS } from '../../lib/mock';
 import { StatusBadge } from '../../components/StatusBadge';
-import { DemoBanner } from '../../components/DemoBanner';
 import { formatDate } from '../../lib/utils';
 
 export default function CommitteePage() {
@@ -28,7 +27,6 @@ export default function CommitteePage() {
   const [inspections, setInspections] = useState<InspectionAssignment[]>([]);
   const [selectedInspectorId, setSelectedInspectorId] = useState<string>('ALL');
   const [loading, setLoading] = useState(true);
-  const [isDemo, setIsDemo] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // EVC Report Filing Modal
@@ -57,7 +55,6 @@ export default function CommitteePage() {
     setLoading(true);
     const appRes = await getApplications();
     setApplications(appRes.data || []);
-    setIsDemo(appRes.isDemo);
 
     const inspRes = await getInspections(selectedInspectorId === 'ALL' ? undefined : selectedInspectorId);
     setInspections(inspRes.data || []);
@@ -116,7 +113,6 @@ export default function CommitteePage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      <DemoBanner show={isDemo} />
 
       {/* Floating Toast Notification */}
       {toast && (

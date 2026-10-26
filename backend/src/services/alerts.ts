@@ -260,9 +260,6 @@ async function dispatchAlert(params: {
   escalation?: Escalation;
 }): Promise<{ log: AlertLog; won: boolean } | null> {
   const logId = makeLogId(params.item.eventId, params.kind, params.level);
-  const existing = await store.getAlertLog(logId);
-  if (existing) return null;
-
   const recipient = await resolveRecipient(
     params.recipientRole,
     params.region,
@@ -278,23 +275,7 @@ async function dispatchAlert(params: {
       ? `Level ${params.level} escalation raised. ${params.item.reason}`
       : params.item.reason;
 
-  const notification: Notification = {
-    id: `NOTIF-${logId}`,
-    applicationId: params.item.applicationId,
-    title,
-    message,
-    type: params.kind === 'ESCALATION' ? 'OVERDUE' : 'WARNING',
-    read: false,
-    createdAt: params.now.toISOString(),
-    idempotencyKey: logId,
-    recipientRole: params.recipientRole,
-    region: params.region,
-    institutionName: params.item.institutionName,
-    eventId: params.item.eventId,
-    escalationId: params.escalation?.id,
-  };
-  await store.addNotification(notification);
-
+  const notificationId = `NOTIF-${logId}`;
   const log: AlertLog = {
     id: logId,
     eventId: params.item.eventId,
@@ -312,9 +293,35 @@ async function dispatchAlert(params: {
     createdAt: params.now.toISOString(),
     mailStatus: 'SKIPPED',
     escalationId: params.escalation?.id,
-    notificationId: notification.id,
+    notificationId,
   };
-  await store.saveAlertLog(log);
+
+  // Claim the idempotency key BEFORE any side effect. The database unique
+  // constraint on alert_logs.idempotency_key makes this race-safe when two
+  // cron invocations overlap.
+  const claim = await store.claimAlertLog(log);
+  if (!claim.created) return null;
+
+  if (params.escalation) {
+    await store.saveEscalation(params.escalation);
+  }
+
+  const notification: Notification = {
+    id: notificationId,
+    applicationId: params.item.applicationId,
+    title,
+    message,
+    type: params.kind === 'ESCALATION' ? 'OVERDUE' : 'WARNING',
+    read: false,
+    createdAt: params.now.toISOString(),
+    idempotencyKey: logId,
+    recipientRole: params.recipientRole,
+    region: params.region,
+    institutionName: params.item.institutionName,
+    eventId: params.item.eventId,
+    escalationId: params.escalation?.id,
+  };
+  await store.addNotification(notification);
 
   await store.recordLedger(
     params.item.applicationId,
@@ -331,8 +338,8 @@ async function dispatchAlert(params: {
     }
   );
 
-  queueEmail(log, recipient?.email);
-  return { log, won: true };
+  queueEmail(claim.log, recipient?.email);
+  return { log: claim.log, won: true };
 }
 
 /** Runs the alert engine for a given "now" (defaults to the current time). */
@@ -400,6 +407,7 @@ export async function runAlertEngine(now: Date = new Date()): Promise<AlertRunRe
           result.duplicatesSkipped += 1;
           continue;
         }
+        const escalationWasNew = !escalation;
         if (!escalation) {
           escalation = {
             id: escalationId,
@@ -414,8 +422,6 @@ export async function runAlertEngine(now: Date = new Date()): Promise<AlertRunRe
             reason: item.reason,
             institutionName: item.institutionName,
           };
-          await store.saveEscalation(escalation);
-          result.escalationsCreated += 1;
         }
 
         const dispatched = await dispatchAlert({
@@ -428,8 +434,11 @@ export async function runAlertEngine(now: Date = new Date()): Promise<AlertRunRe
           escalation,
         });
         if (dispatched) {
+          if (escalationWasNew) result.escalationsCreated += 1;
           result.notificationsCreated += 1;
           result.emailsQueued += 1;
+        } else {
+          result.duplicatesSkipped += 1;
         }
       }
     }

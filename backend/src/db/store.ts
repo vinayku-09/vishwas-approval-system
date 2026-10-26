@@ -55,6 +55,11 @@ export interface IStore {
   // Alerts & Escalations (Phase C)
   listAlertLogs(): Promise<AlertLog[]>;
   getAlertLog(id: string): Promise<AlertLog | null>;
+  /**
+   * Atomically claims an alert idempotency key. Returns created=false when the
+   * key was already claimed by another run.
+   */
+  claimAlertLog(log: AlertLog): Promise<{ created: boolean; log: AlertLog }>;
   saveAlertLog(log: AlertLog): Promise<AlertLog>;
   updateAlertLog(id: string, updates: Partial<AlertLog>): Promise<AlertLog | null>;
   listEscalations(filters?: {
@@ -93,10 +98,10 @@ export interface IStore {
     payload: Record<string, unknown>
   ): Promise<LedgerEntry>;
   tamperLedger(applicationId: string, index?: number): Promise<{ tampered: boolean; entryId?: string }>;
-  seed(): void;
+  seed(): Promise<void> | void;
 }
 
-class InMemoryStore implements IStore {
+export class InMemoryStore implements IStore {
   private applications: Map<string, Application> = new Map();
   private documents: Map<string, DocumentMetadata[]> = new Map();
   private complianceDocuments: Map<string, ComplianceDocument> = new Map();
@@ -340,6 +345,15 @@ class InMemoryStore implements IStore {
   async getAlertLog(id: string): Promise<AlertLog | null> {
     const log = this.alertLogs.get(id);
     return log ? JSON.parse(JSON.stringify(log)) : null;
+  }
+
+  async claimAlertLog(log: AlertLog): Promise<{ created: boolean; log: AlertLog }> {
+    const existing = this.alertLogs.get(log.id);
+    if (existing) {
+      return { created: false, log: JSON.parse(JSON.stringify(existing)) };
+    }
+    this.alertLogs.set(log.id, JSON.parse(JSON.stringify(log)));
+    return { created: true, log: JSON.parse(JSON.stringify(log)) };
   }
 
   async saveAlertLog(log: AlertLog): Promise<AlertLog> {
@@ -1153,4 +1167,12 @@ class InMemoryStore implements IStore {
   }
 }
 
-export const store: IStore = new InMemoryStore();
+export let store: IStore = new InMemoryStore();
+
+/**
+ * Replaces the active store. ES module live bindings mean every importer sees
+ * the new instance; used by the Postgres bootstrap and Postgres-specific tests.
+ */
+export function setStore(next: IStore): void {
+  store = next;
+}

@@ -16,27 +16,23 @@ import {
   Scale,
   Award,
 } from 'lucide-react';
-import { DemoBanner } from '../components/DemoBanner';
-import { getApplications, setStoredRole } from '../lib/api';
+import { getApplications, getStoredUser, setStoredRole } from '../lib/api';
 
 export default function HomePage() {
-  const [isDemo, setIsDemo] = useState(false);
   const [appCount, setAppCount] = useState(4);
 
   useEffect(() => {
     getApplications().then((res) => {
-      setIsDemo(res.isDemo);
       if (res.data) setAppCount(res.data.length);
     });
   }, []);
 
   const handleRoleCardClick = (role: 'institution' | 'officer' | 'committee') => {
-    setStoredRole(role);
+    if (!getStoredUser()) setStoredRole(role);
   };
 
   return (
     <div className="space-y-12 pb-12">
-      <DemoBanner show={isDemo} />
 
       {/* Hero Section */}
       <section className="bg-gradient-to-b from-gov-blue-900 to-gov-blue-800 text-white py-16 px-4 sm:px-6 lg:px-8 border-b-4 border-gov-saffron">
@@ -158,7 +154,7 @@ export default function HomePage() {
           <span className="text-xs font-bold uppercase tracking-wider text-gov-blue-700">
             Role-Based Access
           </span>
-          <h2 className="text-2xl font-bold text-slate-900 mt-1">Select Your Portal Portal Role</h2>
+          <h2 className="text-2xl font-bold text-slate-900 mt-1">Select Your Portal Role</h2>
           <p className="text-sm text-slate-600">
             Switch your role to interact with specific stages of the approval workflow.
           </p>

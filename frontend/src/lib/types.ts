@@ -331,6 +331,7 @@ export interface AuthUser {
   role: UserRole;
   institutionName?: string;
   inspectorId?: string;
+  region?: Region;
 }
 
 export interface AuthTokenPayload {
@@ -340,6 +341,7 @@ export interface AuthTokenPayload {
   email: string;
   institutionName?: string;
   inspectorId?: string;
+  region?: Region;
   iat?: number;
   exp?: number;
 }

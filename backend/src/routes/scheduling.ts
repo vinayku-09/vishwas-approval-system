@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { store } from '../db/store.js';
 import { optimizeEvcSchedule } from '../services/scheduler.js';
-import { Role } from '../types.js';
+import { optionalAuthMiddleware, resolveActorRole } from '../middleware/auth.js';
 
 export const schedulingRouter = new Hono();
 
@@ -13,8 +13,8 @@ const optimizeSchema = z.object({
 });
 
 // POST /scheduling/optimize - Runs route optimization for EVC_REQUIRED applications (Officer role)
-schedulingRouter.post('/optimize', async (c) => {
-  const role = (c.req.header('x-role') || 'officer') as Role;
+schedulingRouter.post('/optimize', optionalAuthMiddleware, async (c) => {
+  const role = resolveActorRole(c, 'institution');
   if (role !== 'officer') {
     return c.json({ error: 'Forbidden: EVC scheduling optimization requires officer role' }, 403);
   }

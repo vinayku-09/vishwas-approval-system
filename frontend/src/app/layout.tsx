@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { Navbar } from '../components/Navbar';
+import { DemoBanner } from '../components/DemoBanner';
 import { MailModeBanner } from '../components/MailModeBanner';
 
 export const metadata: Metadata = {
@@ -18,6 +19,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="bg-slate-50 text-slate-900 flex flex-col min-h-screen">
         <Navbar />
+        <DemoBanner />
         <MailModeBanner />
         <main className="flex-1 w-full">{children}</main>
         <footer className="bg-gov-blue-950 text-slate-400 border-t border-slate-800 text-xs py-6 mt-12">

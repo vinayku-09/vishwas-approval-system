@@ -146,6 +146,37 @@ describe('Phase A: Inspector Scheduling (EVC) & Conflict Resolution Tests', () =
       expect(res.status).toBe(403);
     });
 
+    it('ignores legacy x-role headers when demo header auth is disabled', async () => {
+      const previous = process.env.ALLOW_DEMO_HEADER_ROLE;
+      process.env.ALLOW_DEMO_HEADER_ROLE = 'false';
+      try {
+        const res = await app.request('/scheduling/optimize', {
+          method: 'POST',
+          headers: { 'x-role': 'officer' },
+          body: JSON.stringify({}),
+        });
+        expect(res.status).toBe(403);
+      } finally {
+        if (previous === undefined) {
+          delete process.env.ALLOW_DEMO_HEADER_ROLE;
+        } else {
+          process.env.ALLOW_DEMO_HEADER_ROLE = previous;
+        }
+      }
+    });
+
+    it('rejects an invalid bearer token instead of falling back to demo auth', async () => {
+      const res = await app.request('/applications/APP-2024-005/schedule-evc', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer not-a-valid-token',
+          'x-role': 'officer',
+        },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(401);
+    });
+
     it('rejects scheduling if one of the inspectors has an active conflict of interest', async () => {
       // INS-001 has active conflict with APP-2024-005 (VJTI)
       const res = await app.request('/applications/APP-2024-005/schedule-evc', {

@@ -2,6 +2,7 @@ import {
   Application,
   ApplicationType,
   AlertEventType,
+  AuthUser,
   ComplianceDocument,
   Deficiency,
   DocumentMetadata,
@@ -16,12 +17,15 @@ import {
   InspectionAssignment,
   Inspector,
   LedgerEntry,
+  LoginRequest,
+  LoginResponse,
   Notification,
   OptimizationResult,
   Role,
   SignoffDecision,
   SignoffRecord,
   Status,
+  UserRole,
   VerificationResult,
 } from './types';
 import {
@@ -46,10 +50,96 @@ let localLedger: Record<string, LedgerEntry[]> = JSON.parse(JSON.stringify(INITI
 let localInspections: InspectionAssignment[] = JSON.parse(JSON.stringify(INITIAL_MOCK_INSPECTIONS));
 let localEscalations: Escalation[] = JSON.parse(JSON.stringify(INITIAL_MOCK_ESCALATIONS));
 
+const TOKEN_KEY = 'aicte_token';
+const USER_KEY = 'aicte_user';
+const ROLE_KEY = 'aicte_role';
+const SESSION_EVENT = 'aicte_session_changed';
+const ROLE_EVENT = 'aicte_role_changed';
+const DEMO_EVENT = 'aicte_demo_changed';
+
+const USER_ROLES: UserRole[] = ['INSTITUTION', 'OFFICER', 'COMMITTEE', 'CHIEF'];
+const DEMO_ROLES = ['institution', 'officer', 'committee', 'chief'] as const;
+
+let demoModeActive = false;
+const demoModeListeners = new Set<(active: boolean) => void>();
+
+/** True when any API call has fallen back to local demo data in this session. */
+export function isDemoModeActive(): boolean {
+  return demoModeActive;
+}
+
+export function subscribeDemoMode(listener: (active: boolean) => void): () => void {
+  demoModeListeners.add(listener);
+  return () => demoModeListeners.delete(listener);
+}
+
+function setDemoMode(active: boolean): void {
+  if (demoModeActive === active) return;
+  demoModeActive = active;
+  demoModeListeners.forEach((listener) => listener(active));
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(DEMO_EVENT));
+  }
+}
+
+function markDemoMode(): void {
+  setDemoMode(true);
+}
+
+export function clearDemoMode(): void {
+  setDemoMode(false);
+}
+
+function isUserRole(value: unknown): value is UserRole {
+  return typeof value === 'string' && USER_ROLES.includes(value as UserRole);
+}
+
+function readStoredUser(): AuthUser | null {
+  if (typeof window === 'undefined') return null;
+  const raw = localStorage.getItem(USER_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<AuthUser>;
+    if (
+      !parsed ||
+      typeof parsed.id !== 'string' ||
+      typeof parsed.email !== 'string' ||
+      typeof parsed.name !== 'string' ||
+      !isUserRole(parsed.role)
+    ) {
+      return null;
+    }
+    return parsed as AuthUser;
+  } catch {
+    return null;
+  }
+}
+
+function dispatchSessionChanged(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event(SESSION_EVENT));
+  window.dispatchEvent(new Event(ROLE_EVENT));
+}
+
+export function getStoredUser(): AuthUser | null {
+  return readStoredUser();
+}
+
+export function getStoredToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function isAuthenticated(): boolean {
+  return Boolean(getStoredToken() && readStoredUser());
+}
+
 export function getStoredRole(): Role {
   if (typeof window === 'undefined') return 'institution';
-  const role = localStorage.getItem('aicte_role') as Role;
-  if (role && ['institution', 'officer', 'committee', 'chief'].includes(role)) {
+  const user = readStoredUser();
+  if (user) return user.role.toLowerCase() as Role;
+  const role = localStorage.getItem(ROLE_KEY) as Role;
+  if (role && DEMO_ROLES.includes(role as (typeof DEMO_ROLES)[number])) {
     return role;
   }
   return 'institution';
@@ -57,8 +147,112 @@ export function getStoredRole(): Role {
 
 export function setStoredRole(role: Role): void {
   if (typeof window === 'undefined') return;
-  localStorage.setItem('aicte_role', role);
-  window.dispatchEvent(new Event('aicte_role_changed'));
+  localStorage.setItem(ROLE_KEY, role.toLowerCase());
+  window.dispatchEvent(new Event(ROLE_EVENT));
+}
+
+export function setSession(response: LoginResponse): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(TOKEN_KEY, response.token);
+  localStorage.setItem(USER_KEY, JSON.stringify(response.user));
+  localStorage.setItem(ROLE_KEY, response.user.role.toLowerCase());
+  clearDemoMode();
+  dispatchSessionChanged();
+}
+
+export function clearSession(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+  localStorage.removeItem(ROLE_KEY);
+  dispatchSessionChanged();
+}
+
+export function getSessionEventName(): string {
+  return SESSION_EVENT;
+}
+
+/**
+ * Authenticates against the backend and persists the returned JWT.
+ * Unlike data reads, login failures are returned to the caller and never
+ * silently replaced with demo data.
+ */
+export async function login(
+  credentials: LoginRequest
+): Promise<{ data: LoginResponse | null; error?: string; status?: number }> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    const res = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(credentials),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    const body = (await res.json().catch(() => ({}))) as Partial<LoginResponse> & {
+      error?: string;
+    };
+
+    if (!res.ok || !body.token || !body.user) {
+      return {
+        data: null,
+        error: body.error || `Login failed (HTTP ${res.status})`,
+        status: res.status,
+      };
+    }
+
+    setSession(body as LoginResponse);
+    return { data: body as LoginResponse };
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error && err.name === 'AbortError'
+        ? 'Login timed out. Is the backend running?'
+        : err instanceof Error
+        ? err.message
+        : String(err);
+    return { data: null, error: message };
+  }
+}
+
+export const DEMO_ACCOUNTS: Record<
+  (typeof DEMO_ROLES)[number],
+  LoginRequest & { label: string; name: string }
+> = {
+  institution: {
+    email: 'delhi.tech@aicte.gov.in',
+    password: 'Password123!',
+    label: 'Institution',
+    name: 'Delhi Institute of Advanced Technology & AI',
+  },
+  officer: {
+    email: 'officer@aicte.gov.in',
+    password: 'Password123!',
+    label: 'Scrutiny Officer',
+    name: 'Dr. Arvind Kumar',
+  },
+  committee: {
+    email: 'committee@aicte.gov.in',
+    password: 'Password123!',
+    label: 'EVC Committee',
+    name: 'Dr. Sunita Patil',
+  },
+  chief: {
+    email: 'chief@aicte.gov.in',
+    password: 'Password123!',
+    label: 'AICTE Chief',
+    name: 'Prof. Anil Sahasrabudhe',
+  },
+};
+
+export async function loginAsDemoRole(
+  role: Role
+): Promise<{ data: LoginResponse | null; error?: string; status?: number }> {
+  const key = role.toLowerCase() as (typeof DEMO_ROLES)[number];
+  const account = DEMO_ACCOUNTS[key] || DEMO_ACCOUNTS.institution;
+  return login({ email: account.email, password: account.password });
 }
 
 async function request<T>(
@@ -66,11 +260,16 @@ async function request<T>(
   options: RequestInit = {}
 ): Promise<{ data: T; isDemo: boolean; error?: string }> {
   const role = getStoredRole();
+  const token = getStoredToken();
   const headers = new Headers(options.headers || {});
   if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }
-  headers.set('x-role', role);
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  } else {
+    headers.set('x-role', role);
+  }
 
   try {
     const controller = new AbortController();
@@ -85,6 +284,18 @@ async function request<T>(
 
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}));
+      if (res.status === 401 && token) {
+        clearSession();
+        if (
+          typeof window !== 'undefined' &&
+          window.location.pathname !== '/login'
+        ) {
+          const next = `${window.location.pathname}${window.location.search}`;
+          window.location.assign(
+            `/login?expired=1&next=${encodeURIComponent(next)}`
+          );
+        }
+      }
       throw new Error(errJson.error || `HTTP error ${res.status}: ${res.statusText}`);
     }
 
@@ -92,7 +303,8 @@ async function request<T>(
     return { data, isDemo: false };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[Backend API Unreachable] Falling back to local mock data for ${path}:`, message);
+    markDemoMode();
+    console.warn(`[Backend API Unavailable] Falling back to local mock data for ${path}:`, message);
     return { data: null as unknown as T, isDemo: true, error: message };
   }
 }

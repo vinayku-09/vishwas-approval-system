@@ -10,6 +10,11 @@ import { schedulingRouter } from './routes/scheduling.js';
 import { authRouter } from './routes/auth.js';
 import { escalationsRouter } from './routes/escalations.js';
 import { getMailHealth } from './services/mailer.js';
+import { initializeStore } from './db/index.js';
+
+// Select Postgres when DATABASE_URL is configured; otherwise use the in-memory
+// repository seeded with demo records.
+initializeStore();
 
 export const app = new Hono();
 

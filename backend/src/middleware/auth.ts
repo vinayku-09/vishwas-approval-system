@@ -1,6 +1,6 @@
 import { Context, Next } from 'hono';
 import { verifyJwt } from '../services/auth.js';
-import { AuthTokenPayload, UserRole } from '../types.js';
+import { AuthTokenPayload, Role, UserRole } from '../types.js';
 
 // Extend Hono's context variable map
 declare module 'hono' {
@@ -18,6 +18,27 @@ export function normalizeRole(role: string): UserRole {
     return upper as UserRole;
   }
   return 'INSTITUTION';
+}
+
+/**
+ * Resolves the acting role for legacy workflow routes.
+ *
+ * A verified JWT (populated by optionalAuthMiddleware) always wins. When no
+ * token is present, the legacy x-role header remains supported so existing
+ * deployments and tests can opt into ALLOW_DEMO_HEADER_ROLE.
+ */
+export function resolveActorRole(c: Context, fallback: Role = 'institution'): Role {
+  const user = c.get('user');
+  if (user?.role) {
+    return user.role.toLowerCase() as Role;
+  }
+  if (process.env.ALLOW_DEMO_HEADER_ROLE === 'true') {
+    const headerRole = c.req.header('x-role');
+    if (headerRole) {
+      return normalizeRole(headerRole).toLowerCase() as Role;
+    }
+  }
+  return fallback;
 }
 
 /**
@@ -81,7 +102,7 @@ export async function optionalAuthMiddleware(c: Context, next: Next): Promise<Re
       c.set('user', payload);
       return next();
     } catch {
-      // Ignore invalid token on optional routes
+      return c.json({ error: 'Unauthorized: Invalid or expired token' }, 401);
     }
   }
 

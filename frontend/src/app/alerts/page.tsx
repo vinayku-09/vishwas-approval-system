@@ -13,7 +13,6 @@ import {
   Check,
   X,
 } from 'lucide-react';
-import { DemoBanner } from '../../components/DemoBanner';
 import {
   acknowledgeEscalation,
   getEscalations,
@@ -50,7 +49,6 @@ type Toast = { message: string; type: 'success' | 'error' } | null;
 export default function AlertsPage() {
   const [role, setRole] = useState('institution');
   const [loading, setLoading] = useState(true);
-  const [isDemo, setIsDemo] = useState(false);
   const [escalations, setEscalations] = useState<Escalation[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [statusFilter, setStatusFilter] = useState<'ALL' | EscalationStatus>('ALL');
@@ -78,9 +76,6 @@ export default function AlertsPage() {
       if (isInternal) {
         const escRes = await getEscalations();
         setEscalations(escRes.data || []);
-        setIsDemo(escRes.isDemo || notifRes.isDemo);
-      } else {
-        setIsDemo(notifRes.isDemo);
       }
     } catch (err: unknown) {
       setToast({
@@ -163,7 +158,6 @@ export default function AlertsPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      <DemoBanner show={isDemo} />
 
       {toast && (
         <div

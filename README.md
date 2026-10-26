@@ -17,11 +17,11 @@ A full-stack, automated prototype system for AICTE (All India Council for Techni
          ▼                                      ▼                                  ▼
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │                               Next.js 14 Web Frontend                                  │
-│                 Government Portal UI (Tailwind CSS, Responsive, Role Switcher)         │
+│                 Government Portal UI (Tailwind CSS, Responsive, JWT Login & Session)         │
 │                 • Real Document Uploads & Hashes   • Monitored Compliance Badges       │
 │                 • Rich Extraction Metrics Table    • Navbar Notification Bell          │
 └───────────────────────────────────────────┬────────────────────────────────────────────┘
-                                            │ HTTP (JSON / Multipart) + x-role header
+                                            │ HTTP (JSON / Multipart) + Bearer JWT
                                             ▼
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │                                 Hono API Backend                                       │
@@ -69,7 +69,38 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:3000](http://localhost:3000) in your browser, then sign in at
+[http://localhost:3000/login](http://localhost:3000/login) with any seeded account:
+
+| Role | Email | Password |
+| :--- | :--- | :--- |
+| Institution | `delhi.tech@aicte.gov.in` | `Password123!` |
+| Scrutiny Officer (all regions) | `officer@aicte.gov.in` | `Password123!` |
+| Scrutiny Officer (West) | `officer.west@aicte.gov.in` | `Password123!` |
+| EVC Committee | `committee@aicte.gov.in` | `Password123!` |
+| AICTE Chief | `chief@aicte.gov.in` | `Password123!` |
+
+The login screen also has one-click demo account buttons. The browser stores the
+signed JWT and sends `Authorization: Bearer <token>` on every API request.
+If the backend is offline, the portal falls back to local seed data and the
+global amber **Demo Data** banner stays visible. The legacy `x-role` header is
+only kept for opt-in `ALLOW_DEMO_HEADER_ROLE=true` demo mode.
+
+### 3. Optional: Persist Data in Neon Postgres
+
+```bash
+cd backend
+# Configure DATABASE_URL in .env first
+npm run db:migrate
+npm run db:seed
+npm run dev
+```
+
+When `DATABASE_URL` is set the API automatically uses the Drizzle/Neon repository
+instead of the in-memory store. The seed is idempotent: it clears the demo tables
+and reloads the same 15 applications, 7 users, ledger chain, inspections and
+notifications. Database-level unique indexes make alert dispatch and notification
+writes safe when cron runs overlap across instances.
 
 ---
 
@@ -79,7 +110,7 @@ Both the backend and frontend seamlessly fall back to local in-memory engines wh
 
 | Variable | Description | Fallback Behavior when Unset |
 | :--- | :--- | :--- |
-| `DATABASE_URL` | Neon Postgres connection string | Uses built-in in-memory repository pre-seeded with 4 sample applications |
+| `DATABASE_URL` | Neon Postgres connection string | Uses built-in in-memory repository pre-seeded with 15 applications, users, inspections, notifications and ledger entries |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob access token for uploaded PDF/PNG files | Stores files safely in local `./uploads/` directory (gitignored) |
 | `AI_GATEWAY_API_KEY` | Vercel AI SDK Gateway key for Multimodal Vision extraction | Uses deterministic mock extractor (`source: "mock"`) |
 | `EXTRACTION_MODEL` | Vision model ID (e.g. `gpt-4o-mini`, `gemini-1.5-flash`) | Defaults to `gpt-4o-mini` when AI Gateway is enabled |
@@ -88,7 +119,8 @@ Both the backend and frontend seamlessly fall back to local in-memory engines wh
 | `MAIL_FROM` | Sender address for alert emails | `no-reply@vishwas.local` |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` | SMTP credentials for `MAIL_MODE=live` | Unused in log/ethereal modes |
 | `PORTAL_URL` | Base URL used in alert email links | `http://localhost:3000` |
-| `ALLOW_DEMO_HEADER_ROLE` | Enables legacy `x-role` auth fallback for demos | `false` (JWT required) |
+| `JWT_SECRET` | HS256 signing secret for login tokens | Development uses an internal dev secret; production refuses to start without it |
+| `ALLOW_DEMO_HEADER_ROLE` | Enables legacy `x-role` auth fallback for demos | `false` (JWT required; seeded demo logins still work) |
 | `OPTIMIZER_URL` | Endpoint of the Python Google OR-Tools VRP optimizer microservice | Uses built-in pure TypeScript vehicle routing solver (`optimizerFallback.ts`) with identical constraints |
 | `NEXT_PUBLIC_API_URL` | Frontend pointer to backend URL | Defaults to `http://localhost:4000` with offline mock fallback |
 
@@ -101,26 +133,28 @@ All endpoints return standard JSON. Errors return `{ "error": string }`.
 | Method | Endpoint | Description | Request Headers / Body |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/health` | Service liveness healthcheck | None |
+| `POST` | `/auth/login` | Validate credentials and issue an 8-hour JWT | Body: `{ email, password }` |
+| `GET` | `/auth/me` | Return the authenticated user claims | Header: `Authorization: Bearer <JWT>` |
 | `GET` | `/applications` | List applications (`?status=&type=`) | None |
 | `POST` | `/applications` | Create affiliation proposal | `{ institutionName, type, extracted? }` |
 | `GET` | `/applications/:id` | Fetch application details | None |
 | `POST` | `/applications/:id/documents` | Upload PDF/PNG/JPG ($\le 10$ MB), hash with SHA-256 | Multipart: `file`, `docType` (`LEASE_DEED \| FIRE_NOC \| LAND_RECORD`) |
 | `GET` | `/applications/:id/documents` | List uploaded document metadata | None |
-| `POST` | `/applications/:id/extract` | Run AI Vision / Mock extraction & evaluate AICTE rules | Header: `x-role: officer` |
-| `POST` | `/applications/:id/signoff` | Human officer sign-off (`CONFIRM \| OVERRIDE`) | Header: `x-role: officer`<br>Body: `{ decision, deficiencyIds, remarks }` |
-| `POST` | `/applications/:id/advance` | Advance workflow state (enforces sign-off & lock gates) | Header: `x-role: officer`<br>Body: `{ to: Status, remarks?, overrideRemarks? }` |
+| `POST` | `/applications/:id/extract` | Run AI Vision / Mock extraction & evaluate AICTE rules | Header: `Authorization: Bearer <JWT>` (officer) |
+| `POST` | `/applications/:id/signoff` | Human officer sign-off (`CONFIRM \| OVERRIDE`) | Header: `Authorization: Bearer <JWT>` (officer)<br>Body: `{ decision, deficiencyIds, remarks }` |
+| `POST` | `/applications/:id/advance` | Advance workflow state (enforces sign-off & lock gates) | Header: `Authorization: Bearer <JWT>` (officer)<br>Body: `{ to: Status, remarks?, overrideRemarks? }` |
 | `GET` | `/applications/:id/compliance` | Get compliance documents with expiry states & days left | None |
-| `POST` | `/scheduling/optimize` | Run OR-Tools / Fallback VRP inspection scheduling (officer) | Header: `x-role: officer`<br>Body: `{ dateWindow: { start, end } }` |
+| `POST` | `/scheduling/optimize` | Run OR-Tools / Fallback VRP inspection scheduling (officer) | Header: `Authorization: Bearer <JWT>` (officer)<br>Body: `{ dateWindow: { start, end } }` |
 | `GET` | `/inspections` | List assigned EVC inspections (`?inspectorId=`) | None |
-| `POST` | `/applications/:id/schedule-evc` | Confirm & record EVC committee assignment | Header: `x-role: officer`<br>Body: `{ inspectorIds: [id1, id2], date }` |
-| `POST` | `/applications/:id/evc-report` | Committee files inspection report, advances state to `EVC_DONE` | Header: `x-role: committee`<br>Body: `{ inspectorId, observations, recommendations, passed, metrics }` |
+| `POST` | `/applications/:id/schedule-evc` | Confirm & record EVC committee assignment | Header: `Authorization: Bearer <JWT>` (officer)<br>Body: `{ inspectorIds: [id1, id2], date }` |
+| `POST` | `/applications/:id/evc-report` | Committee files inspection report, advances state to `EVC_DONE` | Header: `Authorization: Bearer <JWT>` (committee/officer)<br>Body: `{ inspectorId, observations, recommendations, passed, metrics }` |
 | `POST` | `/cron/expiry-check` | Daily job to recompute expiry tiers (90/60/30) & lock overdue apps | Header: `Authorization: Bearer <CRON_SECRET>` |
 | `GET`/`POST` | `/cron/alerts` | Daily reminder + escalation engine (idempotent) | Header: `Authorization: Bearer <CRON_SECRET>` (503 if unset) |
 | `GET` | `/escalations` | List escalations (`?status=&eventType=`), region-scoped | Header: `Authorization: Bearer <JWT>` (OFFICER/COMMITTEE/CHIEF) |
 | `POST` | `/escalations/:id/acknowledge` | Move escalation to `ACKNOWLEDGED` and write ledger entry | Bearer JWT |
 | `POST` | `/escalations/:id/resolve` | Resolve with mandatory remarks and write ledger entry | Bearer JWT; `{ remarks }` |
-| `GET` | `/notifications` | List in-app notifications (role/region scoped when authenticated) | Optional Bearer JWT |
-| `POST` | `/notifications/:id/read` | Mark in-app alert as read | None |
+| `GET` | `/notifications` | List in-app notifications, role/region scoped | Required Bearer JWT |
+| `POST` | `/notifications/:id/read` | Mark in-app alert as read (404 if missing, 403 if out of scope) | Required Bearer JWT |
 | `GET` | `/ledger/:applicationId` | Retrieve audit chain blocks | None |
 | `GET` | `/ledger/:applicationId/verify` | Verify cryptographic hash chain | None |
 | `POST` | `/ledger/:applicationId/tamper` | Test endpoint to simulate DB record alteration | `{ index?: number }` |
@@ -183,7 +217,7 @@ curl -X POST http://localhost:4000/cron/alerts \
 
 ## 🧪 Automated Testing
 
-The backend includes 89 unit, pipeline, scheduler and alert-engine tests running under Vitest:
+The backend includes 94 unit, pipeline, scheduler, alert-engine and persistence tests running under Vitest:
 
 ```bash
 cd backend
@@ -206,6 +240,17 @@ Test coverage includes:
 13. **Document Upload & Ledger Security**: Rejection of unsupported file types and files $> 10$ MB; verifying the ledger contains SHA-256 hashes but never raw file bytes.
 14. **AI Extraction Retry**: Schema validation failure triggers one retry, and fails with a clear error on persistent failure.
 15. **State Machine & Ledger Integrity**: Valid transitions, terminal states, and tamper detection.
+16. **Postgres Persistence & Idempotency**: Real-Postgres migration/seed round trip, overlapping cron deduplication and authenticated notification scoping.
+17. **JWT Role Resolution**: Signed-token roles take precedence over legacy demo headers; workflow routes reject unauthenticated mutations when demo headers are disabled.
+
+To run the Postgres-specific test against a disposable database:
+
+```bash
+TEST_DATABASE_URL=postgresql://test:test@localhost:5432/vishwas_test npm test
+```
+
+Without `TEST_DATABASE_URL` these tests run against `pg-mem`, except for the
+real-database path described above.
 
 ---
 
@@ -217,7 +262,8 @@ Test coverage includes:
 3. Framework Preset: **Other**.
 4. Build Command: `npm run build`.
 5. Environment Variables:
-   - `DATABASE_URL` (optional, Neon Postgres)
+   - `DATABASE_URL` (optional, Neon Postgres; run `npm run db:migrate && npm run db:seed` after setting it)
+   - `JWT_SECRET` (required in production for login tokens)
    - `BLOB_READ_WRITE_TOKEN` (optional, Vercel Blob)
    - `AI_GATEWAY_API_KEY` (optional, Vercel AI SDK Gateway)
    - `OPTIMIZER_URL` (optional, Python OR-Tools microservice)

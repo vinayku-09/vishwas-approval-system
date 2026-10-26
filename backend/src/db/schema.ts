@@ -1,111 +1,178 @@
-import { pgTable, text, timestamp, jsonb, integer, boolean, doublePrecision } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  text,
+  jsonb,
+  integer,
+  uniqueIndex,
+  index,
+} from 'drizzle-orm/pg-core';
+import type {
+  Affiliation,
+  AlertLog,
+  Application,
+  ComplianceDocument,
+  DocumentMetadata,
+  Escalation,
+  InspectionAssignment,
+  Inspector,
+  LedgerEntry,
+  Notification,
+  SignoffRecord,
+  User,
+} from '../types.js';
 
 /**
- * Neon Postgres schema definition using Drizzle ORM
+ * Neon Postgres schema for the application repository.
+ *
+ * Each entity table keeps the columns used for filtering/ordering and a JSONB
+ * `data` payload that is the canonical domain object. This keeps the existing
+ * TypeScript domain contracts as the single source of truth while still giving
+ * every collection a real, queryable Postgres table. Mutation-critical keys
+ * (notification idempotency key, alert-log idempotency key, user email) have
+ * database-level unique constraints so concurrent cron runs cannot duplicate.
  */
-export const applicationsTable = pgTable('applications', {
-  id: text('id').primaryKey(),
-  institutionName: text('institution_name').notNull(),
-  type: text('type').notNull(), // NEW | EXTENSION_OF_APPROVAL | INTAKE_CHANGE
-  status: text('status').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  slaDueAt: timestamp('sla_due_at', { withTimezone: true }).notNull(),
-  extracted: jsonb('extracted'),
-  extractedDetails: jsonb('extracted_details'),
-  deficiencies: jsonb('deficiencies').notNull().default('[]'),
-  signoff: jsonb('signoff'),
-  locked: boolean('locked').notNull().default(false),
-  lat: doublePrecision('lat'),
-  lng: doublePrecision('lng'),
-  domain: text('domain'), // CIVIL | CSE | ELECTRICAL | MECHANICAL
-  scheduledInspection: jsonb('scheduled_inspection'),
+
+export const applicationsTable = pgTable(
+  'applications',
+  {
+    id: text('id').primaryKey(),
+    status: text('status').notNull(),
+    type: text('type').notNull(),
+    createdAt: text('created_at').notNull(),
+    data: jsonb('data').$type<Application>().notNull(),
+  },
+  (table) => [index('applications_status_idx').on(table.status)]
+);
+
+export const documentsTable = pgTable(
+  'documents',
+  {
+    id: text('id').primaryKey(),
+    applicationId: text('application_id').notNull(),
+    data: jsonb('data').$type<DocumentMetadata>().notNull(),
+  },
+  (table) => [index('documents_application_idx').on(table.applicationId)]
+);
+
+export const complianceDocumentsTable = pgTable(
+  'compliance_documents',
+  {
+    id: text('id').primaryKey(),
+    applicationId: text('application_id').notNull(),
+    data: jsonb('data').$type<ComplianceDocument>().notNull(),
+  },
+  (table) => [index('compliance_documents_application_idx').on(table.applicationId)]
+);
+
+export const notificationsTable = pgTable(
+  'notifications',
+  {
+    id: text('id').primaryKey(),
+    applicationId: text('application_id').notNull(),
+    createdAt: text('created_at').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    recipientRole: text('recipient_role'),
+    region: text('region'),
+    institutionName: text('institution_name'),
+    data: jsonb('data').$type<Notification>().notNull(),
+  },
+  (table) => [
+    uniqueIndex('notifications_idempotency_key_uq').on(table.idempotencyKey),
+    index('notifications_created_at_idx').on(table.createdAt),
+  ]
+);
+
+export const alertLogsTable = pgTable(
+  'alert_logs',
+  {
+    id: text('id').primaryKey(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    applicationId: text('application_id').notNull(),
+    createdAt: text('created_at').notNull(),
+    data: jsonb('data').$type<AlertLog>().notNull(),
+  },
+  (table) => [
+    uniqueIndex('alert_logs_idempotency_key_uq').on(table.idempotencyKey),
+    index('alert_logs_application_idx').on(table.applicationId),
+  ]
+);
+
+export const escalationsTable = pgTable(
+  'escalations',
+  {
+    id: text('id').primaryKey(),
+    applicationId: text('application_id').notNull(),
+    eventType: text('event_type').notNull(),
+    status: text('status').notNull(),
+    region: text('region').notNull(),
+    createdAt: text('created_at').notNull(),
+    data: jsonb('data').$type<Escalation>().notNull(),
+  },
+  (table) => [
+    index('escalations_status_idx').on(table.status),
+    index('escalations_region_idx').on(table.region),
+  ]
+);
+
+export const signoffsTable = pgTable('signoffs', {
+  applicationId: text('application_id').primaryKey(),
+  data: jsonb('data').$type<SignoffRecord>().notNull(),
 });
 
-export const inspectorsTable = pgTable('inspectors', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  domain: text('domain').notNull(), // CIVIL | CSE | ELECTRICAL | MECHANICAL
-  homeCity: text('home_city').notNull(),
-  lat: doublePrecision('lat').notNull(),
-  lng: doublePrecision('lng').notNull(),
-  availableDates: jsonb('available_dates').notNull().default('[]'),
-});
+export const ledgerTable = pgTable(
+  'ledger',
+  {
+    id: text('id').primaryKey(),
+    applicationId: text('application_id').notNull(),
+    chainIndex: integer('chain_index').notNull(),
+    data: jsonb('data').$type<LedgerEntry>().notNull(),
+  },
+  (table) => [
+    uniqueIndex('ledger_application_index_uq').on(table.applicationId, table.chainIndex),
+    index('ledger_application_idx').on(table.applicationId),
+  ]
+);
 
-export const affiliationsTable = pgTable('affiliations', {
-  id: text('id').primaryKey(),
-  inspectorId: text('inspector_id').notNull(),
-  institutionName: text('institution_name').notNull(),
-  reason: text('reason').notNull(),
-});
+export const inspectorsTable = pgTable(
+  'inspectors',
+  {
+    id: text('id').primaryKey(),
+    domain: text('domain').notNull(),
+    data: jsonb('data').$type<Inspector>().notNull(),
+  },
+  (table) => [index('inspectors_domain_idx').on(table.domain)]
+);
 
-export const inspectionsTable = pgTable('inspections', {
-  id: text('id').primaryKey(),
-  applicationId: text('application_id').notNull(),
-  institutionName: text('institution_name').notNull(),
-  domain: text('domain').notNull(),
-  lat: doublePrecision('lat').notNull(),
-  lng: doublePrecision('lng').notNull(),
-  scheduledDate: text('scheduled_date').notNull(),
-  inspectors: jsonb('inspectors').notNull(),
-  status: text('status').notNull(), // SCHEDULED | COMPLETED
-  report: jsonb('report'),
-  source: text('source').notNull().default('fallback'), // ortools | fallback | manual
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const affiliationsTable = pgTable(
+  'affiliations',
+  {
+    id: text('id').primaryKey(),
+    inspectorId: text('inspector_id').notNull(),
+    data: jsonb('data').$type<Affiliation>().notNull(),
+  },
+  (table) => [index('affiliations_inspector_idx').on(table.inspectorId)]
+);
 
-export const documentsTable = pgTable('documents', {
-  id: text('id').primaryKey(),
-  applicationId: text('application_id').notNull(),
-  docType: text('doc_type').notNull(), // LEASE_DEED | FIRE_NOC | LAND_RECORD
-  fileName: text('file_name').notNull(),
-  mimeType: text('mime_type').notNull(),
-  sizeBytes: integer('size_bytes').notNull(),
-  sha256: text('sha256').notNull(),
-  storageUrl: text('storage_url').notNull(),
-  uploadedAt: timestamp('uploaded_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const inspectionsTable = pgTable(
+  'inspections',
+  {
+    id: text('id').primaryKey(),
+    applicationId: text('application_id').notNull(),
+    data: jsonb('data').$type<InspectionAssignment>().notNull(),
+  },
+  (table) => [index('inspections_application_idx').on(table.applicationId)]
+);
 
-export const complianceDocumentsTable = pgTable('compliance_documents', {
-  id: text('id').primaryKey(),
-  applicationId: text('application_id').notNull(),
-  docType: text('doc_type').notNull(),
-  expiryDate: text('expiry_date').notNull(),
-  state: text('state').notNull(), // VALID | WARNING | OVERDUE
-  tier: integer('tier'), // 90 | 60 | 30
-  daysRemaining: integer('days_remaining').notNull(),
-  lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const notificationsTable = pgTable('notifications', {
-  id: text('id').primaryKey(),
-  applicationId: text('application_id').notNull(),
-  title: text('title').notNull(),
-  message: text('message').notNull(),
-  type: text('type').notNull(), // WARNING | OVERDUE | INFO
-  read: boolean('read').notNull().default(false),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  idempotencyKey: text('idempotency_key').notNull().unique(),
-});
-
-export const ledgerTable = pgTable('ledger', {
-  id: text('id').primaryKey(),
-  applicationId: text('application_id').notNull(),
-  eventType: text('event_type').notNull(),
-  actor: text('actor').notNull(),
-  payload: jsonb('payload').notNull(),
-  timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
-  prevHash: text('prev_hash').notNull(),
-  hash: text('hash').notNull(),
-  index: integer('chain_index').notNull(),
-});
-
-export const usersTable = pgTable('users', {
-  id: text('id').primaryKey(),
-  email: text('email').notNull().unique(),
-  passwordHash: text('password_hash').notNull(),
-  name: text('name').notNull(),
-  role: text('role').notNull(), // INSTITUTION | OFFICER | COMMITTEE | CHIEF
-  institutionName: text('institution_name'),
-  inspectorId: text('inspector_id'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const usersTable = pgTable(
+  'users',
+  {
+    id: text('id').primaryKey(),
+    email: text('email').notNull(),
+    role: text('role').notNull(),
+    data: jsonb('data').$type<User>().notNull(),
+  },
+  (table) => [
+    uniqueIndex('users_email_uq').on(table.email),
+    index('users_role_idx').on(table.role),
+  ]
+);

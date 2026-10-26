@@ -1,32 +1,52 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { ShieldCheck, UserCheck, Menu, X, Landmark } from 'lucide-react';
-import { Role } from '../lib/types';
-import { getStoredRole, setStoredRole } from '../lib/api';
+import { usePathname, useRouter } from 'next/navigation';
+import { ShieldCheck, Menu, X, Landmark, LogIn, LogOut } from 'lucide-react';
+import { Role, AuthUser } from '../lib/types';
+import {
+  clearSession,
+  getSessionEventName,
+  getStoredRole,
+  getStoredUser,
+  setStoredRole,
+} from '../lib/api';
 import { NotificationBell } from './NotificationBell';
 
 export function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [role, setRole] = useState<Role>('institution');
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  useEffect(() => {
+  const syncSession = useCallback(() => {
     setRole(getStoredRole());
-
-    const handleRoleChange = () => {
-      setRole(getStoredRole());
-    };
-
-    window.addEventListener('aicte_role_changed', handleRoleChange);
-    return () => window.removeEventListener('aicte_role_changed', handleRoleChange);
+    setUser(getStoredUser());
   }, []);
+
+  useEffect(() => {
+    syncSession();
+
+    window.addEventListener('aicte_role_changed', syncSession);
+    window.addEventListener(getSessionEventName(), syncSession);
+    return () => {
+      window.removeEventListener('aicte_role_changed', syncSession);
+      window.removeEventListener(getSessionEventName(), syncSession);
+    };
+  }, [syncSession]);
 
   const handleRoleSelect = (newRole: Role) => {
     setStoredRole(newRole);
     setRole(newRole);
+  };
+
+  const handleLogout = () => {
+    clearSession();
+    setUser(null);
+    setRole('institution');
+    router.push('/login');
   };
 
   const navLinks = [
@@ -99,28 +119,60 @@ export function Navbar() {
           <div className="flex items-center gap-3">
             <NotificationBell />
 
-            <div className="bg-gov-blue-950/80 border border-white/20 rounded-lg p-1 flex items-center gap-1 text-xs">
-              <span className="text-[10px] uppercase font-bold text-blue-300 px-2 hidden lg:inline">
-                Active Role:
-              </span>
-              {(['institution', 'officer', 'committee', 'chief'] as Role[]).map((r) => {
-                const isSelected = role === r;
-                return (
-                  <button
-                    key={r}
-                    onClick={() => handleRoleSelect(r)}
-                    type="button"
-                    className={`px-2.5 py-1 rounded text-xs font-semibold capitalize transition-all ${
-                      isSelected
-                        ? 'bg-gov-saffron text-white shadow-sm'
-                        : 'text-blue-200 hover:text-white hover:bg-white/5'
-                    }`}
-                  >
-                    {r}
-                  </button>
-                );
-              })}
-            </div>
+            {user ? (
+              <div className="flex items-center gap-2">
+                <div className="hidden lg:block text-right leading-tight">
+                  <div className="text-xs font-semibold text-white max-w-[180px] truncate">
+                    {user.name}
+                  </div>
+                  <div className="text-[10px] uppercase tracking-wide text-amber-300">
+                    {user.role}
+                    {user.region && user.region !== 'ALL' ? ` · ${user.region}` : ''}
+                  </div>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  type="button"
+                  className="p-2 rounded-lg bg-gov-blue-950/80 hover:bg-white/10 text-blue-200 hover:text-white border border-white/20 transition-colors"
+                  aria-label="Sign out"
+                  title={`Sign out ${user.email}`}
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="hidden xl:flex bg-gov-blue-950/80 border border-white/20 rounded-lg p-1 items-center gap-1 text-xs">
+                  <span className="text-[10px] uppercase font-bold text-blue-300 px-2">
+                    Demo role:
+                  </span>
+                  {(['institution', 'officer', 'committee', 'chief'] as Role[]).map((r) => {
+                    const isSelected = role === r;
+                    return (
+                      <button
+                        key={r}
+                        onClick={() => handleRoleSelect(r)}
+                        type="button"
+                        className={`px-2.5 py-1 rounded text-xs font-semibold capitalize transition-all ${
+                          isSelected
+                            ? 'bg-gov-saffron text-white shadow-sm'
+                            : 'text-blue-200 hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        {r}
+                      </button>
+                    );
+                  })}
+                </div>
+                <Link
+                  href="/login"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gov-saffron hover:bg-orange-600 text-xs font-bold text-white transition-colors"
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Sign in</span>
+                </Link>
+              </>
+            )}
 
             {/* Mobile menu trigger */}
             <button

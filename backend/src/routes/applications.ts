@@ -6,11 +6,11 @@ import {
   ApplicationType,
   ComplianceDocument,
   EvcReport,
-  Role,
   SignoffDecision,
   SignoffRecord,
   Status,
 } from '../types.js';
+import { optionalAuthMiddleware, resolveActorRole } from '../middleware/auth.js';
 import { evaluateRules } from '../services/rules.js';
 import { validateTransition } from '../services/workflow.js';
 import { extractApplicationDocuments } from '../services/extractor.js';
@@ -19,6 +19,8 @@ import { canonicalJson } from '../services/ledger.js';
 import { scheduleSingleEvc } from '../services/scheduler.js';
 
 export const applicationsRouter = new Hono();
+
+applicationsRouter.use('*', optionalAuthMiddleware);
 
 const scheduleEvcSchema = z.object({
   inspectorIds: z.tuple([z.string(), z.string()]),
@@ -89,7 +91,7 @@ applicationsRouter.get('/', async (c) => {
 
 // POST /applications - create new application
 applicationsRouter.post('/', async (c) => {
-  const role = (c.req.header('x-role') || 'institution') as Role;
+  const role = resolveActorRole(c, 'institution');
   const body = await c.req.json().catch(() => null);
 
   const parsed = createApplicationSchema.safeParse(body);
@@ -121,7 +123,7 @@ applicationsRouter.get('/:id', async (c) => {
 
 // POST /applications/:id/extract - AI Extraction + Rule Evaluation (Officer role)
 applicationsRouter.post('/:id/extract', async (c) => {
-  const role = (c.req.header('x-role') || 'institution') as Role;
+  const role = resolveActorRole(c, 'institution');
   if (role !== 'officer') {
     return c.json({ error: 'Forbidden: Extraction action requires officer role' }, 403);
   }
@@ -220,7 +222,7 @@ applicationsRouter.post('/:id/extract', async (c) => {
 
 // POST /applications/:id/signoff - Human Officer Sign-Off (Officer only)
 applicationsRouter.post('/:id/signoff', async (c) => {
-  const role = (c.req.header('x-role') || 'institution') as Role;
+  const role = resolveActorRole(c, 'institution');
   if (role !== 'officer') {
     return c.json({ error: 'Forbidden: Sign-off requires officer role' }, 403);
   }
@@ -275,7 +277,7 @@ applicationsRouter.post('/:id/signoff', async (c) => {
 
 // POST /applications/:id/advance - advance state machine (Officer only)
 applicationsRouter.post('/:id/advance', async (c) => {
-  const role = (c.req.header('x-role') || 'institution') as Role;
+  const role = resolveActorRole(c, 'institution');
   if (role !== 'officer') {
     return c.json({ error: 'Forbidden: Advancing workflow requires officer role' }, 403);
   }
@@ -367,7 +369,7 @@ applicationsRouter.get('/:id/compliance', async (c) => {
 
 // Legacy / Direct POST /applications/:id/scrutiny (backwards compatible)
 applicationsRouter.post('/:id/scrutiny', async (c) => {
-  const role = (c.req.header('x-role') || 'institution') as Role;
+  const role = resolveActorRole(c, 'institution');
   if (role !== 'officer') {
     return c.json({ error: 'Forbidden: Scrutiny action requires officer role' }, 403);
   }
@@ -420,7 +422,7 @@ applicationsRouter.post('/:id/scrutiny', async (c) => {
 // POST /applications/:id/schedule-evc (Officer role)
 // Schedules 2 distinct, conflict-free, domain-qualified inspectors for physical inspection
 applicationsRouter.post('/:id/schedule-evc', async (c) => {
-  const role = (c.req.header('x-role') || 'officer') as Role;
+  const role = resolveActorRole(c, 'officer');
   if (role !== 'officer') {
     return c.json({ error: 'Forbidden: EVC scheduling requires officer role' }, 403);
   }
@@ -476,7 +478,7 @@ applicationsRouter.post('/:id/schedule-evc', async (c) => {
 // POST /applications/:id/evc-report (Committee role)
 // Submits physical inspection findings, hashes the report, and advances state to EVC_DONE
 applicationsRouter.post('/:id/evc-report', async (c) => {
-  const role = (c.req.header('x-role') || 'committee') as Role;
+  const role = resolveActorRole(c, 'committee');
   if (role !== 'committee' && role !== 'officer') {
     return c.json({ error: 'Forbidden: EVC report submission requires committee or officer role' }, 403);
   }

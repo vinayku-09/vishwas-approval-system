@@ -42,13 +42,11 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { SlaBadge } from '../../components/SlaBadge';
 import { Timeline } from '../../components/Timeline';
 import { DeficiencyList } from '../../components/DeficiencyList';
-import { DemoBanner } from '../../components/DemoBanner';
 import { formatDate, shortHash } from '../../lib/utils';
 
 export default function InstitutionPage() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isDemo, setIsDemo] = useState(false);
   const [selectedApp, setSelectedApp] = useState<Application | null>(null);
   const [activeDrawerTab, setActiveDrawerTab] = useState<'overview' | 'documents' | 'compliance'>('overview');
 
@@ -83,7 +81,6 @@ export default function InstitutionPage() {
     setLoading(true);
     const res = await getApplications();
     setApplications(res.data || []);
-    setIsDemo(res.isDemo);
     setLoading(false);
   };
 
@@ -188,7 +185,6 @@ export default function InstitutionPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      <DemoBanner show={isDemo} />
 
       {/* Header bar */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">

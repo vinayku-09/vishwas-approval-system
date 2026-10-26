@@ -20,7 +20,6 @@ import {
 import { Application, LedgerEntry, VerificationResult } from '../../../lib/types';
 import { getApplication, getLedger, verifyLedger, tamperLedger } from '../../../lib/api';
 import { StatusBadge } from '../../../components/StatusBadge';
-import { DemoBanner } from '../../../components/DemoBanner';
 import { formatDate, shortHash } from '../../../lib/utils';
 
 const EVENT_TYPE_LABELS: Record<string, { label: string; color: string }> = {
@@ -49,7 +48,6 @@ export default function VerifyPage() {
   const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
   const [verification, setVerification] = useState<VerificationResult | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isDemo, setIsDemo] = useState(false);
   const [tampering, setTampering] = useState(false);
   const [bannerMessage, setBannerMessage] = useState<string | null>(null);
 
@@ -66,7 +64,6 @@ export default function VerifyPage() {
     setApplication(appRes.data);
     setLedgerEntries(ledgerRes.data || []);
     setVerification(verifyRes.data || null);
-    setIsDemo(appRes.isDemo || ledgerRes.isDemo || verifyRes.isDemo);
     setLoading(false);
   };
 
@@ -91,7 +88,6 @@ export default function VerifyPage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      <DemoBanner show={isDemo} />
 
       {/* Back button */}
       <div>

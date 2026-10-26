@@ -4,7 +4,11 @@ import React, { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { Bell, Check, Clock, AlertTriangle, ShieldAlert, Info, ArrowRight } from 'lucide-react';
 import { Notification } from '../lib/types';
-import { getNotifications, markNotificationRead } from '../lib/api';
+import {
+  getNotifications,
+  getSessionEventName,
+  markNotificationRead,
+} from '../lib/api';
 import { formatDate } from '../lib/utils';
 
 export function NotificationBell() {
@@ -26,7 +30,14 @@ export function NotificationBell() {
   useEffect(() => {
     fetchNotifs();
     const interval = setInterval(fetchNotifs, 15000);
-    return () => clearInterval(interval);
+    const handleSessionChange = () => fetchNotifs();
+    window.addEventListener(getSessionEventName(), handleSessionChange);
+    window.addEventListener('aicte_role_changed', handleSessionChange);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener(getSessionEventName(), handleSessionChange);
+      window.removeEventListener('aicte_role_changed', handleSessionChange);
+    };
   }, []);
 
   // Close dropdown on click outside

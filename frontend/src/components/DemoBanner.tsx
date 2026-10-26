@@ -1,13 +1,17 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
+import { isDemoModeActive, subscribeDemoMode } from '../lib/api';
 
-interface DemoBannerProps {
-  show: boolean;
-}
+export function DemoBanner() {
+  const [show, setShow] = useState(false);
 
-export function DemoBanner({ show }: DemoBannerProps) {
+  useEffect(() => {
+    setShow(isDemoModeActive());
+    return subscribeDemoMode(setShow);
+  }, []);
+
   if (!show) return null;
 
   return (
@@ -15,7 +19,9 @@ export function DemoBanner({ show }: DemoBannerProps) {
       <div className="max-w-7xl mx-auto w-full flex items-center gap-2">
         <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
         <span>
-          <strong>Demo Mode:</strong> Backend server offline or unreachable (port 4000). Falling back to local in-memory simulation with seed records.
+          <strong>Demo Data:</strong> The backend is unreachable or the current
+          session is not authorised. Showing local seed records until the API is
+          available.
         </span>
       </div>
     </div>

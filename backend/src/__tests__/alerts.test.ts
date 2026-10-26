@@ -279,7 +279,7 @@ describe('Phase C: Alert & Escalation Engine', () => {
       const disabled = await app.request('/notifications', {
         headers: { 'x-role': 'institution' },
       });
-      expect(((await disabled.json()) as unknown[]).length).toBe(allNotifications.length);
+      expect(disabled.status).toBe(401);
 
       process.env.ALLOW_DEMO_HEADER_ROLE = 'true';
       const enabled = await app.request('/notifications', {

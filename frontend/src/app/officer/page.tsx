@@ -42,7 +42,6 @@ import {
 } from '../../lib/api';
 import { StatusBadge } from '../../components/StatusBadge';
 import { SlaBadge } from '../../components/SlaBadge';
-import { DemoBanner } from '../../components/DemoBanner';
 import { DeficiencyList } from '../../components/DeficiencyList';
 
 const NEXT_STATE_TRANSITIONS: Record<Status, Status[]> = {
@@ -61,7 +60,6 @@ const NEXT_STATE_TRANSITIONS: Record<Status, Status[]> = {
 export default function OfficerPage() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isDemo, setIsDemo] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
 
@@ -97,7 +95,6 @@ export default function OfficerPage() {
 
     const res = await getApplications(filters);
     setApplications(res.data || []);
-    setIsDemo(res.isDemo);
     setLoading(false);
   };
 
@@ -243,7 +240,6 @@ export default function OfficerPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      <DemoBanner show={isDemo} />
 
       {/* Floating Toast Notification */}
       {toast && (
