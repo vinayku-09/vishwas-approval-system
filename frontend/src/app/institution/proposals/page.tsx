@@ -78,7 +78,7 @@ export default function InstitutionProposalsPage() {
   const [showGuidelinesModal, setShowGuidelinesModal] = useState(false);
 
   // Bhulekh Land Verification State
-  const [showBhulekhPanel, setShowBhulekhPanel] = useState(false);
+  const [showBhulekhPanel, setShowBhulekhPanel] = useState(true);
   const [bhulekhDistrict, setBhulekhDistrict] = useState('');
   const [bhulekhTaluka, setBhulekhTaluka] = useState('');
   const [bhulekhVillage, setBhulekhVillage] = useState('');
