@@ -747,6 +747,7 @@ export interface ProfileFdrDetails {
 export interface ProfileLandDetails {
   landType: 'OWNED' | 'RENTED';
   totalAreaSqm: number;
+  landAreaSqm?: number;
   khasraOrSurveyNumber?: string;
   leaseStartDate?: string;
   leaseEndDate?: string;
@@ -816,4 +817,85 @@ export interface RiskEvaluationResult {
   disclaimer: string;
   signals: RiskSignal[];
 }
+
+export type ProposalType =
+  | 'NEW_INSTITUTION'
+  | 'EOA'
+  | 'NEW_COURSE'
+  | 'INTAKE_INCREASE'
+  | 'CLOSURE';
+
+export type ProposalStatus = 'DRAFT' | 'SUBMITTED' | 'REVIEWED';
+
+export interface ProposedBranch {
+  id: string;
+  proposalId?: string;
+  level: string;
+  program: string;
+  course: string;
+  affiliatingBody: string;
+  currentIntake: number;
+  expectedIntake: number;
+  shift: string | number;
+  facultySanctioned: number;
+  facultyAvailable: number;
+  facultyPayCompliant: boolean;
+  labs: string[];
+  builtUpArea: number;
+  libraryAvailable: boolean;
+  affiliationNocAvailable?: boolean;
+  affiliationNocDocId?: string;
+  affiliationNocSha256?: string;
+}
+
+export type BranchCheckRule =
+  | 'FACULTY_RATIO'
+  | 'FACULTY_PAY_COMPLIANCE'
+  | 'LAND_SUFFICIENCY'
+  | 'LABS_INFRASTRUCTURE'
+  | 'AFFILIATION_NOC'
+  | 'INTAKE_LIMIT'
+  | 'DOCUMENT_VALIDITY';
+
+export interface BranchRuleResult {
+  rule: BranchCheckRule;
+  status: 'MET' | 'DEFICIENT' | 'REVIEW';
+  computed: string | number;
+  required: string | number;
+  reason: string;
+}
+
+export interface BranchCheckSummary {
+  branchId: string;
+  course: string;
+  level: string;
+  overallStatus: 'MET' | 'DEFICIENT' | 'REVIEW';
+  results: BranchRuleResult[];
+}
+
+export interface ProposalDetermination {
+  decision: 'NO_CONCERN' | 'ASK_CLARIFICATION' | 'REFER';
+  remarks: string;
+  officerId: string;
+  officerEmail?: string;
+  officerRegion?: Region;
+  determinedAt: string;
+}
+
+export interface CourseProposal {
+  id: string;
+  institutionId: string;
+  applicationId: string;
+  institutionName?: string;
+  region: Region;
+  type: ProposalType;
+  status: ProposalStatus;
+  branches: ProposedBranch[];
+  checkResults?: BranchCheckSummary[];
+  determination?: ProposalDetermination;
+  createdAt: string;
+  updatedAt: string;
+  submittedAt?: string;
+}
+
 

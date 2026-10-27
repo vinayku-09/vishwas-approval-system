@@ -666,3 +666,84 @@ export interface InstitutionProfile {
   updatedAt: string;
 }
 
+export type ProposalType =
+  | 'NEW_INSTITUTION'
+  | 'EOA'
+  | 'NEW_COURSE'
+  | 'INTAKE_INCREASE'
+  | 'CLOSURE';
+
+export type ProposalStatus = 'DRAFT' | 'SUBMITTED' | 'REVIEWED';
+
+export interface ProposedBranch {
+  id: string;
+  proposalId?: string;
+  level: string; // 'UG' | 'PG' | 'DIPLOMA'
+  program: string; // 'ENGINEERING' | 'MANAGEMENT' | 'PHARMACY' | 'MCA'
+  course: string; // e.g. 'Computer Science & Engineering'
+  affiliatingBody: string; // e.g. 'State Technical University'
+  currentIntake: number;
+  expectedIntake: number;
+  shift: string | number; // '1st Shift' | '2nd Shift'
+  facultySanctioned: number;
+  facultyAvailable: number;
+  facultyPayCompliant: boolean;
+  labs: string[];
+  builtUpArea: number; // in sqm
+  libraryAvailable: boolean;
+  affiliationNocAvailable?: boolean;
+  affiliationNocDocId?: string;
+  affiliationNocSha256?: string;
+}
+
+export type BranchCheckRule =
+  | 'FACULTY_RATIO'
+  | 'FACULTY_PAY_COMPLIANCE'
+  | 'LAND_SUFFICIENCY'
+  | 'LABS_INFRASTRUCTURE'
+  | 'AFFILIATION_NOC'
+  | 'INTAKE_LIMIT'
+  | 'DOCUMENT_VALIDITY';
+
+export interface BranchRuleResult {
+  rule: BranchCheckRule;
+  status: 'MET' | 'DEFICIENT' | 'REVIEW';
+  computed: string | number;
+  required: string | number;
+  reason: string;
+}
+
+export interface BranchCheckSummary {
+  branchId: string;
+  course: string;
+  level: string;
+  overallStatus: 'MET' | 'DEFICIENT' | 'REVIEW';
+  results: BranchRuleResult[];
+}
+
+export interface ProposalDetermination {
+  decision: 'NO_CONCERN' | 'ASK_CLARIFICATION' | 'REFER';
+  remarks: string;
+  officerId: string;
+  officerEmail?: string;
+  officerRegion?: Region;
+  determinedAt: string;
+}
+
+export interface CourseProposal {
+  id: string;
+  institutionId: string;
+  applicationId: string;
+  institutionName?: string;
+  region: Region;
+  type: ProposalType;
+  status: ProposalStatus;
+  branches: ProposedBranch[];
+  checkResults?: BranchCheckSummary[];
+  determination?: ProposalDetermination;
+  createdAt: string;
+  updatedAt: string;
+  submittedAt?: string;
+}
+
+

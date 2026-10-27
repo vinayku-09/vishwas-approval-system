@@ -29,6 +29,8 @@ import {
   InstitutionProfile,
   ProfileStatus,
   RegistrationOtp,
+  CourseProposal,
+  ProposalStatus,
 } from '../types.js';
 import { createLedgerEntry, GENESIS_HASH } from '../services/ledger.js';
 import { SLA_WINDOW_DAYS_NEW } from '../config/timelines.js';
@@ -821,6 +823,8 @@ export class PostgresStore implements IStore {
         'Database reset refused: ALLOW_DB_RESET=true must be explicitly set to reset database.'
       );
     }
+    await this.db.delete(schema.proposedBranchesTable);
+    await this.db.delete(schema.courseProposalsTable);
     await this.db.delete(schema.verificationsTable);
     await this.db.delete(schema.evidenceTable);
     await this.db.delete(schema.undertakingsTable);
@@ -1102,5 +1106,95 @@ export class PostgresStore implements IStore {
 
     return hashes;
   }
+
+  // Course Proposals
+  async saveCourseProposal(proposal: CourseProposal): Promise<CourseProposal> {
+    await this.db
+      .insert(schema.courseProposalsTable)
+      .values({
+        id: proposal.id,
+        institutionId: proposal.institutionId,
+        applicationId: proposal.applicationId,
+        type: proposal.type,
+        status: proposal.status,
+        data: proposal,
+      })
+      .onConflictDoUpdate({
+        target: schema.courseProposalsTable.id,
+        set: {
+          institutionId: proposal.institutionId,
+          applicationId: proposal.applicationId,
+          type: proposal.type,
+          status: proposal.status,
+          data: proposal,
+        },
+      });
+
+    // Also persist branches if any
+    if (proposal.branches && proposal.branches.length > 0) {
+      await this.db
+        .delete(schema.proposedBranchesTable)
+        .where(eq(schema.proposedBranchesTable.proposalId, proposal.id));
+
+      for (const branch of proposal.branches) {
+        await this.db.insert(schema.proposedBranchesTable).values({
+          id: branch.id,
+          proposalId: proposal.id,
+          data: branch,
+        });
+      }
+    }
+
+    return clone(proposal);
+  }
+
+  async getCourseProposal(id: string): Promise<CourseProposal | null> {
+    const rows = await this.db
+      .select({ data: schema.courseProposalsTable.data })
+      .from(schema.courseProposalsTable)
+      .where(eq(schema.courseProposalsTable.id, id))
+      .limit(1);
+    return rows[0] ? clone(rows[0].data) : null;
+  }
+
+  async listCourseProposals(filters?: {
+    institutionId?: string;
+    region?: Region;
+    status?: ProposalStatus;
+  }): Promise<CourseProposal[]> {
+    const conditions: SQL[] = [];
+    if (filters?.institutionId) {
+      conditions.push(eq(schema.courseProposalsTable.institutionId, filters.institutionId));
+    }
+    if (filters?.status) {
+      conditions.push(eq(schema.courseProposalsTable.status, filters.status));
+    }
+
+    const query = conditions.length
+      ? this.db.select({ data: schema.courseProposalsTable.data }).from(schema.courseProposalsTable).where(and(...conditions))
+      : this.db.select({ data: schema.courseProposalsTable.data }).from(schema.courseProposalsTable);
+
+    const rows = await query;
+    let list = rows.map((r) => clone(r.data));
+
+    if (filters?.region && filters.region !== 'ALL') {
+      list = list.filter((p) => p.region === filters.region || p.region === 'ALL');
+    }
+
+    return list.sort(
+      (a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()
+    );
+  }
+
+  async deleteCourseProposal(id: string): Promise<boolean> {
+    await this.db
+      .delete(schema.proposedBranchesTable)
+      .where(eq(schema.proposedBranchesTable.proposalId, id));
+    const result = await this.db
+      .delete(schema.courseProposalsTable)
+      .where(eq(schema.courseProposalsTable.id, id));
+    return true;
+  }
 }
+
 

@@ -14,6 +14,7 @@ import { undertakingsRouter, complianceRouter, officerQueueRouter } from './rout
 import { reportsRouter } from './routes/reports.js';
 import { configRouter } from './routes/config.js';
 import { profileRouter } from './routes/profile.js';
+import { proposalsRouter } from './routes/proposals.js';
 import { getMailHealth } from './services/mailer.js';
 import { initializeStore } from './db/index.js';
 
@@ -65,6 +66,7 @@ app.route('/reports', reportsRouter);
 app.route('/config', configRouter);
 app.route('/institution/profile', profileRouter);
 app.route('/', profileRouter);
+app.route('/proposals', proposalsRouter);
 
 // Global 404 handler
 app.notFound((c) => {

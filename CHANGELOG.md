@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-10-27 - Proposed Courses & Intake Module
+
+### Added
+
+- **Data Models & Database Migration (`course_proposals`, `proposed_branches`)**:
+  - Drizzle Postgres tables `course_proposals` and `proposed_branches` with indexes (`0002_course_proposals.sql`), mapped to both Postgres/Neon and in-memory repository with zero-downtime consistency.
+  - Supports proposal types `NEW_INSTITUTION`, `EOA`, `NEW_COURSE`, `INTAKE_INCREASE`, and `CLOSURE` with lifecycle statuses `DRAFT`, `SUBMITTED`, and `REVIEWED`.
+  - Proposed branch schema tracking level (`UG`, `PG`, `DIPLOMA`), program, course, affiliating body, current/expected intake, shifts, cadre sanction & availability, pay compliance, lab rosters, built-up area, and university affiliation NOCs.
+- **AICTE Normative Thresholds Configuration (`backend/src/config/courseNorms.ts`)**:
+  - Threshold parameters: faculty:student ratios (UG 1:20, PG 1:15, Diploma 1:25), minimum land area per student intake (5 sqm/intake), laboratory minimums (4 labs/branch), minimum instructional built-up area (400 sqm/branch), standard approved division intake increments (`[30, 60, 120, 180, 240, 300]`), and single-cycle maximum intake increase ceiling (+60 seats).
+  - Every individual threshold value explicitly labeled with `"placeholder pending APH. Not official."`.
+- **Pure Evaluation Engine (`backend/src/services/branchCheck.ts`)**:
+  - Pure function returning rule outcomes `{ rule, status: 'MET' | 'DEFICIENT' | 'REVIEW', computed, required, reason }` across all 7 statutory dimensions:
+    1. `FACULTY_RATIO`: computes required faculty vs available against normative ratios.
+    2. `FACULTY_PAY_COMPLIANCE`: flags pay scale non-compliance and unfilled sanctioned cadre vacancies.
+    3. `LAND_SUFFICIENCY`: computes required campus area across cumulative proposed intake against reused institutional profile land records.
+    4. `LABS_INFRASTRUCTURE`: evaluates departmental lab counts, instructional built-up square meters, and library access.
+    5. `AFFILIATION_NOC`: validates mandatory university or state technical board affiliation NOC declarations.
+    6. `INTAKE_LIMIT`: verifies standard division increments and enforces the +60 seat single-year ceiling.
+    7. `DOCUMENT_VALIDITY`: reuses existing expiry monitor (`computeExpiryState`) to detect expired or impending document deadlines.
+  - **Critical Safeguard Principle**: Automated checks serve strictly as assistive indicators for officers and **never auto-reject or block** application submission.
+- **API Routing & Scoping (`/proposals`, `backend/src/routes/proposals.ts`)**:
+  - `POST /proposals`: creates draft proposals with dynamic normative check summaries.
+  - `GET /proposals`: scoped by role and region (Institutions see own proposals; Regional Officers see assigned jurisdiction; Chief sees all).
+  - `GET /proposals/:id`: retrieves single proposal with live re-calculated check results.
+  - `PATCH /proposals/:id`: allows draft modifications; locks once submitted.
+  - `POST /proposals/:id/submit`: non-blocking submission regardless of check deficiencies; writes `COURSE_PROPOSAL_SUBMITTED` event to audit ledger.
+  - `POST /proposals/:id/determination`: officer review endpoint (`NO_CONCERN`, `ASK_CLARIFICATION`, `REFER`) requiring mandatory non-empty remarks and enforcing regional scoping; writes `COURSE_PROPOSAL_REVIEWED` event to ledger.
+  - **Cryptographic Ledger Invariant**: All ledger events record entity IDs and SHA-256 hashes only (`branchesHash`, `checkResultsHash`, `remarksHash`), strictly excluding raw PII and unhashed text.
+- **Frontend Modules**:
+  - `/institution/proposals`: Course proposal builder with branch repeater, live side-by-side normative check panel, profile land reuse badge, save draft, and non-blocking submission.
+  - Officer Portal tab: Course & Intake Proposals queue with prominent **"Indicators, not decisions"** safeguard notice, full branch inspection breakdown, and official determination modal.
+- **Automated Test Suite (`backend/src/__tests__/course_proposals.test.ts`)**:
+  - 15 comprehensive automated tests covering all 7 normative rules, scoping boundaries, mandatory remarks enforcement, non-blocking submit guarantees, and cryptographic ledger hashing.
+  - Backend test suite expanded to **210 passed out of 210 tests** across 16 test files.
+  - Frontend production build: 19 routes statically and dynamically compiled with 0 errors.
+
 ## 2026-10-27 - Part 6: reports, audit-trail view, configuration, and comprehensive demo seed
 
 ### Added

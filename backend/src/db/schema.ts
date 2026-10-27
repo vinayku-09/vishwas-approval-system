@@ -22,6 +22,8 @@ import type {
   UndertakingEvidence,
   UndertakingVerification,
   User,
+  CourseProposal,
+  ProposedBranch,
 } from '../types.js';
 
 /**
@@ -213,5 +215,32 @@ export const verificationsTable = pgTable(
     data: jsonb('data').$type<UndertakingVerification>().notNull(),
   },
   (table) => [index('verifications_undertaking_idx').on(table.undertakingId)]
+);
+
+export const courseProposalsTable = pgTable(
+  'course_proposals',
+  {
+    id: text('id').primaryKey(),
+    institutionId: text('institution_id').notNull(),
+    applicationId: text('application_id').notNull(),
+    type: text('type').notNull(),
+    status: text('status').notNull(),
+    data: jsonb('data').$type<CourseProposal>().notNull(),
+  },
+  (table) => [
+    index('course_proposals_institution_idx').on(table.institutionId),
+    index('course_proposals_application_idx').on(table.applicationId),
+    index('course_proposals_status_idx').on(table.status),
+  ]
+);
+
+export const proposedBranchesTable = pgTable(
+  'proposed_branches',
+  {
+    id: text('id').primaryKey(),
+    proposalId: text('proposal_id').notNull(),
+    data: jsonb('data').$type<ProposedBranch>().notNull(),
+  },
+  (table) => [index('proposed_branches_proposal_idx').on(table.proposalId)]
 );
 

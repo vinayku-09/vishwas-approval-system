@@ -47,6 +47,11 @@ This document serves as the formal **Compliance Register** for the AICTE Smart A
 | **Area F: Audit** | SHA-256 tamper-evident ledger | **Complete** | Append-only block ledger where `hash = SHA256(prevHash + id + appId + timestamp + eventType + actor + payload)`. |
 | **Area F: Audit** | Cryptographic verification view | **Complete** | Head-office audit trail query with automated `verifyLedgerChain` evaluating every block hash and parent linkage. |
 | **Area F: Config** | Read-only governance configuration | **Complete** | Head-office view displaying routes, stage timelines, reminder tiers, escalation matrix, and renewal periods. |
+| **Area G: Courses & Intake** | Course proposals & branch repeater | **Complete** | `/institution/proposals` supporting `NEW_INSTITUTION`, `EOA`, `NEW_COURSE`, `INTAKE_INCREASE`, and `CLOSURE`. |
+| **Area G: Courses & Intake** | Pure normative check engine | **Complete** | `branchCheck.ts` evaluating 7 normative dimensions: Faculty Ratio, Pay Compliance, Land Sufficiency (reusing profile land), Labs/Infrastructure, Affiliation NOC, Intake Limits, Document Validity. |
+| **Area G: Courses & Intake** | Assistive non-blocking checks safeguard | **Complete** | Automated checks NEVER auto-reject or block proposal submission. Displays assistive indicators with placeholder APH notice. |
+| **Area G: Courses & Intake** | Officer determination & mandatory remarks | **Complete** | Officer portal tab with determination actions (`NO_CONCERN`, `ASK_CLARIFICATION`, `REFER`) enforcing mandatory non-empty remarks and regional scoping. |
+| **Area G: Courses & Intake** | Ledger privacy & integrity invariant | **Complete** | Ledger events (`COURSE_PROPOSAL_SUBMITTED`, `COURSE_PROPOSAL_REVIEWED`) store entity IDs and SHA-256 hashes only. |
 
 ---
 
@@ -79,6 +84,12 @@ The Part 6 demo dataset (`backend/src/db/demoSeedPart6.ts`) populates 42 diverse
 7. **Document Validity & Renewals:** Certificates in `VALID`, `WARNING` (90d, 60d, 30d), and `EXPIRED` (with system lock), as well as renewals in `SUBMITTED`, `VERIFIED`, and `REJECTED`.
 8. **EVC Visits:** Scheduled, completed, and delayed inspections.
 9. **Multi-tier Escalations:** Active escalations across Level 1 (Regional Officer), Level 2 (Bureau Officer), and Level 3 (AICTE Chief).
+
+### 3.5 Automated Normative Checks Safeguard: "Indicators, Not Decisions"
+- **Assistive Principle:** Automated checks across cadre ratios, campus land sufficiency, departmental laboratories, affiliating body NOCs, and intake step limits are calculated as assistive indicators.
+- **Strict Non-Blocking Invariant:** Automated checks **never auto-reject or block** proposal submission. Institutions can submit proposals even when checks indicate `DEFICIENT` or `REVIEW`.
+- **Mandatory Human Determination:** Formal decisions (`NO_CONCERN`, `ASK_CLARIFICATION`, `REFER`) are reserved exclusively for authorized regional officers and require mandatory, recorded appraisal remarks.
+- **Privacy & Ledger Hashing:** Ledger events (`COURSE_PROPOSAL_SUBMITTED`, `COURSE_PROPOSAL_REVIEWED`) record entity IDs and cryptographic SHA-256 hashes only (`branchesHash`, `checkResultsHash`, `remarksHash`), maintaining zero plaintext exposure of sensitive data.
 
 ---
 

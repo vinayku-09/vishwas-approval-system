@@ -80,3 +80,11 @@ export function decryptBankAccount(encryptedPayload: string): string {
   const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
   return decrypted.toString('utf8');
 }
+
+/**
+ * Computes SHA-256 hash in hex string format.
+ */
+export function sha256(data: string): string {
+  return crypto.createHash('sha256').update(data).digest('hex');
+}
+

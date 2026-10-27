@@ -48,6 +48,11 @@ import {
   ConfigResponse,
   InstitutionProfile,
   RiskEvaluationResult,
+  CourseProposal,
+  ProposalType,
+  ProposalStatus,
+  ProposedBranch,
+  ProposalDetermination,
 } from './types';
 import {
   INITIAL_MOCK_APPLICATIONS,
@@ -1850,6 +1855,100 @@ export async function createAdminUser(userData: {
   }
   return { data: null as unknown as AuthUser, isDemo: true, error: res.error };
 }
+
+// ---------------------------------------------------------------------------
+// Proposed Courses & Intake API
+// ---------------------------------------------------------------------------
+
+export async function getProposals(filters?: {
+  status?: ProposalStatus;
+}): Promise<{ data: CourseProposal[]; isDemo: boolean; error?: string }> {
+  const params = new URLSearchParams();
+  if (filters?.status) params.set('status', filters.status);
+  const query = params.toString() ? `?${params.toString()}` : '';
+
+  const res = await request<{ proposals: CourseProposal[] }>(`/proposals${query}`);
+  if (!res.isDemo && res.data) {
+    return { data: res.data.proposals, isDemo: false };
+  }
+  return { data: [], isDemo: true, error: res.error };
+}
+
+export async function getProposal(
+  id: string
+): Promise<{ data: CourseProposal | null; isDemo: boolean; error?: string }> {
+  const res = await request<{ proposal: CourseProposal }>(`/proposals/${id}`);
+  if (!res.isDemo && res.data) {
+    return { data: res.data.proposal, isDemo: false };
+  }
+  return { data: null, isDemo: true, error: res.error };
+}
+
+export async function createProposal(data: {
+  applicationId?: string;
+  type: ProposalType;
+  branches: ProposedBranch[];
+}): Promise<{ data: CourseProposal | null; isDemo: boolean; error?: string }> {
+  const res = await request<{ proposal: CourseProposal }>('/proposals', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  if (!res.isDemo && res.data) {
+    return { data: res.data.proposal, isDemo: false };
+  }
+  return { data: null, isDemo: true, error: res.error };
+}
+
+export async function updateProposal(
+  id: string,
+  data: {
+    applicationId?: string;
+    type?: ProposalType;
+    branches?: ProposedBranch[];
+  }
+): Promise<{ data: CourseProposal | null; isDemo: boolean; error?: string }> {
+  const res = await request<{ proposal: CourseProposal }>(`/proposals/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+  if (!res.isDemo && res.data) {
+    return { data: res.data.proposal, isDemo: false };
+  }
+  return { data: null, isDemo: true, error: res.error };
+}
+
+export async function submitProposal(
+  id: string
+): Promise<{ data: CourseProposal | null; isDemo: boolean; error?: string }> {
+  const res = await request<{ proposal: CourseProposal; message: string }>(`/proposals/${id}/submit`, {
+    method: 'POST',
+  });
+  if (!res.isDemo && res.data) {
+    return { data: res.data.proposal, isDemo: false };
+  }
+  return { data: null, isDemo: true, error: res.error };
+}
+
+export async function determineProposal(
+  id: string,
+  determination: {
+    decision: 'NO_CONCERN' | 'ASK_CLARIFICATION' | 'REFER';
+    remarks: string;
+  }
+): Promise<{ data: CourseProposal | null; isDemo: boolean; error?: string }> {
+  const res = await request<{ proposal: CourseProposal; message: string }>(
+    `/proposals/${id}/determination`,
+    {
+      method: 'POST',
+      body: JSON.stringify(determination),
+    }
+  );
+  if (!res.isDemo && res.data) {
+    return { data: res.data.proposal, isDemo: false };
+  }
+  return { data: null, isDemo: true, error: res.error };
+}
+
 
 
 

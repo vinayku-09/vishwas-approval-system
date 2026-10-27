@@ -27,6 +27,7 @@ import {
   Undo2,
   FileText,
   Building2,
+  GraduationCap,
 } from 'lucide-react';
 import {
   Application,
@@ -38,6 +39,8 @@ import {
   VerificationQueueData,
   InstitutionProfile,
   RiskEvaluationResult,
+  CourseProposal,
+  ProposedBranch,
 } from '../../lib/types';
 import {
   getApplications,
@@ -53,6 +56,8 @@ import {
   getOfficerProfiles,
   getOfficerProfileRisk,
   reviewOfficerProfile,
+  getProposals,
+  determineProposal,
 } from '../../lib/api';
 import { StatusBadge } from '../../components/StatusBadge';
 import { SlaBadge } from '../../components/SlaBadge';
@@ -105,7 +110,7 @@ export default function OfficerPage() {
   const [returnSubmitting, setReturnSubmitting] = useState(false);
 
   // Phase A & D/E: Tab state
-  const [activeTab, setActiveTab] = useState<'APPLICATIONS' | 'EVC_OPTIMIZER' | 'VERIFICATION_QUEUE' | 'PROFILE_REVIEWS'>('APPLICATIONS');
+  const [activeTab, setActiveTab] = useState<'APPLICATIONS' | 'EVC_OPTIMIZER' | 'VERIFICATION_QUEUE' | 'PROFILE_REVIEWS' | 'COURSE_PROPOSALS'>('APPLICATIONS');
   const [startDate, setStartDate] = useState('2026-11-01');
   const [endDate, setEndDate] = useState('2026-11-07');
   const [optimizing, setOptimizing] = useState(false);
@@ -126,6 +131,14 @@ export default function OfficerPage() {
   const [reviewDecision, setReviewDecision] = useState<'NO_CONCERN' | 'ASK_CLARIFICATION' | 'REFER'>('NO_CONCERN');
   const [reviewRemarks, setReviewRemarks] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
+
+  // Course Proposals & Determination State
+  const [proposalsList, setProposalsList] = useState<CourseProposal[]>([]);
+  const [loadingProposals, setLoadingProposals] = useState(false);
+  const [inspectProposal, setInspectProposal] = useState<CourseProposal | null>(null);
+  const [determinationDecision, setDeterminationDecision] = useState<'NO_CONCERN' | 'ASK_CLARIFICATION' | 'REFER'>('NO_CONCERN');
+  const [determinationRemarks, setDeterminationRemarks] = useState('');
+  const [submittingDetermination, setSubmittingDetermination] = useState(false);
 
   // Reject modal state
   const [rejectModal, setRejectModal] = useState<{
@@ -183,11 +196,26 @@ export default function OfficerPage() {
     }
   };
 
+  const loadProposals = async () => {
+    setLoadingProposals(true);
+    try {
+      const res = await getProposals();
+      setProposalsList(res.data || []);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Failed to load course proposals: ${msg}`, 'error');
+    } finally {
+      setLoadingProposals(false);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'VERIFICATION_QUEUE') {
       loadQueue();
     } else if (activeTab === 'PROFILE_REVIEWS') {
       loadProfiles();
+    } else if (activeTab === 'COURSE_PROPOSALS') {
+      loadProposals();
     }
   }, [activeTab]);
 
@@ -273,6 +301,42 @@ export default function OfficerPage() {
       showToast(`Failed to record review: ${msg}`, 'error');
     } finally {
       setSubmittingReview(false);
+    }
+  };
+
+  const handleOpenInspectProposal = (proposal: CourseProposal) => {
+    setInspectProposal(proposal);
+    setDeterminationDecision(proposal.determination?.decision || 'NO_CONCERN');
+    setDeterminationRemarks(proposal.determination?.remarks || '');
+  };
+
+  const handleSubmitDetermination = async () => {
+    if (!inspectProposal) return;
+    if (!determinationRemarks.trim()) {
+      showToast('Mandatory remarks are required for recording an officer determination.', 'error');
+      return;
+    }
+    setSubmittingDetermination(true);
+    try {
+      const res = await determineProposal(inspectProposal.id, {
+        decision: determinationDecision,
+        remarks: determinationRemarks.trim(),
+      });
+      if (res.error) {
+        showToast(res.error, 'error');
+        return;
+      }
+      showToast(
+        `Determination (${determinationDecision.replace('_', ' ')}) recorded with immutable ledger audit hash.`,
+        'success'
+      );
+      setInspectProposal(null);
+      await loadProposals();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Failed to record determination: ${msg}`, 'error');
+    } finally {
+      setSubmittingDetermination(false);
     }
   };
 
@@ -600,6 +664,22 @@ export default function OfficerPage() {
           <span>Profile Reviews & Document Risk</span>
           <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-900 font-extrabold ml-1">
             {profileList.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('COURSE_PROPOSALS')}
+          type="button"
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+            activeTab === 'COURSE_PROPOSALS'
+              ? 'bg-indigo-900 text-white shadow'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <GraduationCap className="w-4 h-4 text-indigo-400" />
+          <span>Course & Intake Proposals</span>
+          <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-100 text-indigo-900 font-extrabold ml-1">
+            {proposalsList.length}
           </span>
         </button>
       </div>
@@ -1447,6 +1527,356 @@ export default function OfficerPage() {
       </div>
     </div>
   )}
+
+  {/* COURSE & INTAKE PROPOSALS TAB */}
+  {activeTab === 'COURSE_PROPOSALS' && (
+    <div className="space-y-6">
+      {/* Safeguard Notice Banner */}
+      <div className="p-5 rounded-2xl bg-gradient-to-r from-blue-950 via-indigo-950 to-slate-900 text-white border border-indigo-500/30 shadow-md space-y-2">
+        <div className="flex items-center space-x-2 text-indigo-300">
+          <ShieldCheck className="w-5 h-5 text-indigo-400" />
+          <h2 className="text-sm font-bold uppercase tracking-wider text-white">
+            "Indicators, Not Decisions" Regulatory Safeguard
+          </h2>
+          <span className="text-[10px] bg-amber-500/20 text-amber-300 font-extrabold px-2 py-0.5 rounded border border-amber-500/30">
+            Placeholder Pending APH
+          </span>
+        </div>
+        <p className="text-xs text-slate-300 max-w-4xl leading-relaxed">
+          AICTE automated normative checks calculate cadre ratios, land sufficiency across cumulative intake,
+          departmental labs, and validity timelines. These automated indicators <strong>never auto-reject or block</strong> applications.
+          Appraisal decisions require human scrutiny with <strong>mandatory recorded remarks</strong>.
+        </p>
+      </div>
+
+      {/* Proposals List Card */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="p-5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
+              <GraduationCap className="w-4 h-4 text-indigo-600" />
+              <span>Course & Intake Proposals ({proposalsList.length})</span>
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Review institution course submissions, inspect rule checks, and record official regional determinations.
+            </p>
+          </div>
+          <button
+            onClick={loadProposals}
+            type="button"
+            className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loadingProposals ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+        </div>
+
+        {loadingProposals ? (
+          <div className="p-8 text-center text-xs text-slate-500">
+            <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-600" />
+            Loading submitted course proposals...
+          </div>
+        ) : proposalsList.length === 0 ? (
+          <div className="p-10 text-center space-y-2">
+            <GraduationCap className="w-10 h-10 text-slate-300 mx-auto" />
+            <p className="text-sm font-semibold text-slate-700">No Course Proposals in Queue</p>
+            <p className="text-xs text-slate-400 max-w-sm mx-auto">
+              There are currently no course expansion or intake proposals submitted in your regional jurisdiction.
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {proposalsList.map((prop) => {
+              const totalIntake = (prop.branches || []).reduce(
+                (sum, b) => sum + (Number(b.expectedIntake) || 0),
+                0
+              );
+              const hasDeficiency = prop.checkResults?.some((s) => s.overallStatus === 'DEFICIENT');
+              const hasReview = prop.checkResults?.some((s) => s.overallStatus === 'REVIEW');
+              const overallCheck = hasDeficiency ? 'DEFICIENT' : hasReview ? 'REVIEW' : 'MET';
+
+              return (
+                <div key={prop.id} className="p-5 hover:bg-slate-50/60 transition flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs font-bold bg-slate-100 border border-slate-200 px-2 py-0.5 rounded text-slate-700">
+                        {prop.id}
+                      </span>
+                      <span className="text-xs font-bold text-slate-900">
+                        {prop.institutionName || prop.institutionId}
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 border text-slate-600">
+                        {prop.region}
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700">
+                        {prop.type.replace('_', ' ')}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                          prop.status === 'SUBMITTED'
+                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                            : prop.status === 'REVIEWED'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-amber-50 text-amber-700 border-amber-200'
+                        }`}
+                      >
+                        {prop.status}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600">
+                      <span>Branches: <strong>{prop.branches?.length || 0}</strong></span>
+                      <span>Total Proposed Intake: <strong>{totalIntake} seats</strong></span>
+                      <span>App Cycle: <strong>{prop.applicationId}</strong></span>
+                      {prop.submittedAt && (
+                        <span>Submitted: <strong>{new Date(prop.submittedAt).toLocaleDateString()}</strong></span>
+                      )}
+                    </div>
+
+                    {/* Normative Check Badge */}
+                    <div className="flex items-center space-x-2 text-xs">
+                      <span className="text-[11px] font-semibold text-slate-500">Normative Indicator:</span>
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase border ${
+                          overallCheck === 'MET'
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                            : overallCheck === 'REVIEW'
+                            ? 'bg-amber-100 text-amber-800 border-amber-300'
+                            : 'bg-red-100 text-red-800 border-red-300'
+                        }`}
+                      >
+                        {overallCheck}
+                      </span>
+                      {prop.determination && (
+                        <span className="text-[11px] text-slate-500 ml-2">
+                          Determination: <strong className="text-slate-800">{prop.determination.decision.replace('_', ' ')}</strong>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="shrink-0 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenInspectProposal(prop)}
+                      className="px-4 py-2 rounded-lg bg-indigo-900 hover:bg-indigo-800 text-white font-semibold text-xs flex items-center gap-2 shadow-sm transition-all"
+                    >
+                      <GraduationCap className="w-4 h-4 text-indigo-300" />
+                      <span>Inspect Checks & Determine</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )}
+
+  {/* PROPOSAL INSPECTION & DETERMINATION MODAL */}
+  {inspectProposal && (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl max-w-4xl w-full border border-slate-200 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        {/* Modal Header */}
+        <div className="p-5 bg-gov-blue-900 text-white border-b-4 border-gov-saffron flex items-center justify-between">
+          <div>
+            <div className="flex items-center space-x-2">
+              <span className="font-mono text-xs font-bold bg-white/20 px-2 py-0.5 rounded text-white">
+                {inspectProposal.id}
+              </span>
+              <span className="text-xs font-bold uppercase tracking-wide bg-indigo-500/30 px-2 py-0.5 rounded text-indigo-100 border border-indigo-400/30">
+                {inspectProposal.type.replace('_', ' ')}
+              </span>
+              <span className="text-xs bg-amber-400/20 text-amber-200 px-2 py-0.5 rounded border border-amber-400/30">
+                {inspectProposal.region}
+              </span>
+            </div>
+            <h2 className="text-base font-bold mt-1">
+              {inspectProposal.institutionName || inspectProposal.institutionId}
+            </h2>
+          </div>
+          <button
+            onClick={() => setInspectProposal(null)}
+            className="p-1 rounded-lg hover:bg-white/10 text-white transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Modal Body */}
+        <div className="p-6 overflow-y-auto space-y-6 flex-1 text-slate-800 text-xs">
+          {/* Safeguard Notice in Modal */}
+          <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 space-y-1">
+            <div className="flex items-center space-x-1.5 font-bold text-xs text-amber-800">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>Safeguard Notice: Indicators, Not Automated Decisions</span>
+            </div>
+            <p className="text-[11px] text-amber-800/90 leading-relaxed">
+              Normative checks (cadre ratios, land sufficiency, built-up area) are assistive indicators calculated with placeholder APH thresholds.
+              Checks never auto-reject. Authorized regional officers make the determination with mandatory recorded remarks.
+            </p>
+          </div>
+
+          {/* Branches & Live Rule Checks Breakdown */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              Proposed Branches & Rule Evaluation Breakdown ({inspectProposal.branches?.length || 0})
+            </h3>
+
+            {inspectProposal.branches?.map((branch, idx) => {
+              const summary = inspectProposal.checkResults?.find((s) => s.branchId === branch.id) ||
+                inspectProposal.checkResults?.[idx];
+
+              return (
+                <div key={branch.id || idx} className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
+                    <div>
+                      <span className="font-bold text-sm text-slate-900">{branch.course}</span>
+                      <span className="text-[11px] text-slate-500 ml-2">
+                        ({branch.level} &bull; {branch.program} &bull; {branch.shift})
+                      </span>
+                    </div>
+                    {summary && (
+                      <span
+                        className={`text-[10px] font-extrabold px-2 py-0.5 rounded uppercase border ${
+                          summary.overallStatus === 'MET'
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                            : summary.overallStatus === 'REVIEW'
+                            ? 'bg-amber-100 text-amber-800 border-amber-300'
+                            : 'bg-red-100 text-red-800 border-red-300'
+                        }`}
+                      >
+                        {summary.overallStatus}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Branch Specs */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-slate-600">
+                    <div>Expected Intake: <strong className="text-slate-900">{branch.expectedIntake} seats</strong></div>
+                    <div>Faculty: <strong className="text-slate-900">{branch.facultyAvailable}/{branch.facultySanctioned}</strong></div>
+                    <div>Built-Up Area: <strong className="text-slate-900">{branch.builtUpArea} sqm</strong></div>
+                    <div>Labs: <strong className="text-slate-900">{branch.labs?.length || 0} labs</strong></div>
+                    <div>Affiliating Body: <strong className="text-slate-900">{branch.affiliatingBody || 'None'}</strong></div>
+                    <div>Pay Compliant: <strong className="text-slate-900">{branch.facultyPayCompliant ? 'Yes' : 'No'}</strong></div>
+                    <div>Library: <strong className="text-slate-900">{branch.libraryAvailable ? 'Available' : 'Missing'}</strong></div>
+                    <div>NOC Available: <strong className="text-slate-900">{branch.affiliationNocAvailable ? 'Yes' : 'No'}</strong></div>
+                  </div>
+
+                  {/* Rule Results Breakdown */}
+                  {summary?.results && (
+                    <div className="pt-2 border-t border-slate-200 space-y-1.5">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Normative Rules Evaluated:
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {summary.results.map((ruleRes, rIdx) => (
+                          <div key={rIdx} className="p-2 rounded-lg bg-white border border-slate-200 space-y-0.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-semibold text-slate-800">
+                                {ruleRes.rule.replace('_', ' ')}
+                              </span>
+                              <span
+                                className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
+                                  ruleRes.status === 'MET'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : ruleRes.status === 'REVIEW'
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-red-100 text-red-800'
+                                }`}
+                              >
+                                {ruleRes.status}
+                              </span>
+                            </div>
+                            <div className="flex justify-between text-[10px] text-slate-500">
+                              <span>Computed: {ruleRes.computed}</span>
+                              <span>Req: {ruleRes.required}</span>
+                            </div>
+                            <p className="text-[10px] text-slate-500 italic">{ruleRes.reason}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Officer Determination Form */}
+          <div className="p-5 rounded-xl border border-slate-200 bg-slate-50 space-y-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center space-x-1.5">
+              <ShieldCheck className="w-4 h-4 text-gov-blue-800" />
+              <span>Record Regional Officer Determination</span>
+            </h3>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Determination Decision <span className="text-red-500">*</span>
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {[
+                  { id: 'NO_CONCERN', label: 'No Concern / Approved', color: 'emerald' },
+                  { id: 'ASK_CLARIFICATION', label: 'Ask Clarification', color: 'amber' },
+                  { id: 'REFER', label: 'Refer Higher Committee', color: 'purple' },
+                ].map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setDeterminationDecision(opt.id as any)}
+                    className={`px-3 py-2 rounded-lg text-xs font-semibold border text-center transition ${
+                      determinationDecision === opt.id
+                        ? 'bg-gov-blue-900 text-white border-gov-blue-900 shadow-sm'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Official Determination Remarks (Mandatory) <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                rows={3}
+                value={determinationRemarks}
+                onChange={(e) => setDeterminationRemarks(e.target.value)}
+                placeholder="Enter mandatory appraisal findings, cadre review remarks, and NOC verification details..."
+                className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-xs text-slate-900 focus:outline-none focus:border-gov-blue-800"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                Remarks are mandatory and will be cryptographically hashed (SHA-256) on the immutable audit ledger.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Modal Footer */}
+        <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => setInspectProposal(null)}
+            className="px-4 py-2 border border-slate-200 hover:bg-slate-100 rounded-lg text-xs font-semibold text-slate-700 transition"
+          >
+            Close
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmitDetermination}
+            disabled={submittingDetermination || !determinationRemarks.trim()}
+            className="px-5 py-2 bg-gov-blue-900 hover:bg-gov-blue-800 text-white rounded-lg text-xs font-bold shadow-md transition disabled:opacity-50"
+          >
+            {submittingDetermination ? 'Recording...' : 'Submit Determination & Sign Ledger'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )}
+
 
       {/* REVIEW & HUMAN SIGN-OFF MODAL */}
       {reviewApp && (

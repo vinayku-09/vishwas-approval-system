@@ -26,6 +26,8 @@ import {
   InstitutionProfile,
   ProfileStatus,
   RegistrationOtp,
+  CourseProposal,
+  ProposalStatus,
 } from '../types.js';
 import bcrypt from 'bcryptjs';
 import { createLedgerEntry, GENESIS_HASH } from '../services/ledger.js';
@@ -134,7 +136,15 @@ export interface IStore {
   getProfile(idOrInstitution: string): Promise<InstitutionProfile | null>;
   saveProfile(profile: InstitutionProfile): Promise<InstitutionProfile>;
   listProfiles(filters?: { region?: Region; status?: ProfileStatus }): Promise<InstitutionProfile[]>;
-  getAllDocumentHashesExcept(institutionName: string): Promise<Set<string>>;
+  // Course & Intake Proposals
+  saveCourseProposal(proposal: CourseProposal): Promise<CourseProposal>;
+  getCourseProposal(id: string): Promise<CourseProposal | null>;
+  listCourseProposals(filters?: {
+    institutionId?: string;
+    region?: Region;
+    status?: ProposalStatus;
+  }): Promise<CourseProposal[]>;
+  deleteCourseProposal(id: string): Promise<boolean>;
 
   seed(): Promise<void> | void;
   resetDatabase?(): Promise<void> | void;
@@ -158,6 +168,7 @@ export class InMemoryStore implements IStore {
   private verifications: Map<string, UndertakingVerification[]> = new Map();
   private otps: Map<string, RegistrationOtp> = new Map();
   private profiles: Map<string, InstitutionProfile> = new Map();
+  private courseProposals: Map<string, CourseProposal> = new Map();
 
   constructor() {
     this.seed();
@@ -688,6 +699,42 @@ export class InMemoryStore implements IStore {
     return hashes;
   }
 
+  // Course Proposals
+  async saveCourseProposal(proposal: CourseProposal): Promise<CourseProposal> {
+    this.courseProposals.set(proposal.id, JSON.parse(JSON.stringify(proposal)));
+    return JSON.parse(JSON.stringify(proposal));
+  }
+
+  async getCourseProposal(id: string): Promise<CourseProposal | null> {
+    const found = this.courseProposals.get(id);
+    return found ? JSON.parse(JSON.stringify(found)) : null;
+  }
+
+  async listCourseProposals(filters?: {
+    institutionId?: string;
+    region?: Region;
+    status?: ProposalStatus;
+  }): Promise<CourseProposal[]> {
+    let list = Array.from(this.courseProposals.values());
+    if (filters?.institutionId) {
+      const targetInst = filters.institutionId.toLowerCase().trim();
+      list = list.filter((p) => p.institutionId.toLowerCase().trim() === targetInst);
+    }
+    if (filters?.region && filters.region !== 'ALL') {
+      list = list.filter((p) => p.region === filters.region || p.region === 'ALL');
+    }
+    if (filters?.status) {
+      list = list.filter((p) => p.status === filters.status);
+    }
+    return list
+      .sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime())
+      .map((p) => JSON.parse(JSON.stringify(p)));
+  }
+
+  async deleteCourseProposal(id: string): Promise<boolean> {
+    return this.courseProposals.delete(id);
+  }
+
   resetDatabase(): void {
     if (process.env.ALLOW_DB_RESET !== 'true') {
       throw new Error(
@@ -696,6 +743,7 @@ export class InMemoryStore implements IStore {
     }
     this.otps.clear();
     this.profiles.clear();
+    this.courseProposals.clear();
     this.applications.clear();
     this.documents.clear();
     this.complianceDocuments.clear();
