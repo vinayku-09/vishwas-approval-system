@@ -52,6 +52,10 @@ This document serves as the formal **Compliance Register** for the AICTE Smart A
 | **Area G: Courses & Intake** | Assistive non-blocking checks safeguard | **Complete** | Automated checks NEVER auto-reject or block proposal submission. Displays assistive indicators with placeholder APH notice. |
 | **Area G: Courses & Intake** | Officer determination & mandatory remarks | **Complete** | Officer portal tab with determination actions (`NO_CONCERN`, `ASK_CLARIFICATION`, `REFER`) enforcing mandatory non-empty remarks and regional scoping. |
 | **Area G: Courses & Intake** | Ledger privacy & integrity invariant | **Complete** | Ledger events (`COURSE_PROPOSAL_SUBMITTED`, `COURSE_PROPOSAL_REVIEWED`) store entity IDs and SHA-256 hashes only. |
+| **Area H: Secure Storage** | Vercel Blob private-access file serving | **Complete** | `STORAGE_MODE=local|postgres|blob`; `blobStorage.ts` uses `access:'private'`, `addRandomSuffix:true`, pathname `institutions/{id}/{kind}/{uuid}.pdf`. No public URLs. |
+| **Area H: Secure Storage** | PDF magic-byte & integrity checks | **Complete** | `isValidPdfMagicBytes` validates `%PDF-` prefix pre-upload; SHA-256 computed pre-upload and re-verified on every `GET /files/:id` (returns **409** on mismatch). |
+| **Area H: Secure Storage** | Authenticated, scoped file delivery | **Complete** | `GET /files/:id` enforces JWT auth + role/region scope (CHIEF=all, OFFICER/COMMITTEE=region, INSTITUTION=own files). `Cache-Control: private, no-store` always set. |
+| **Area H: Secure Storage** | DRAFT-only deletion safeguard | **Complete** | `DELETE /files/:id` returns 409 if `isDraft=false`. Submitted evidence is never deleted server-side. |
 
 ---
 

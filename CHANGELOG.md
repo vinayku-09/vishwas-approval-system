@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-10-27 - Vercel Blob Storage Mode & Secure File Serving
+
+### Added
+
+- **Multi-mode file storage layer** (`STORAGE_MODE=local|postgres|blob`):
+  - `backend/src/storage/fileStorage.ts` – shared `IFileStorage` interface, `isValidPdfMagicBytes`, `sha256hex`, size constants (`MAX_FILE_BYTES=10 MB`, `SERVER_UPLOAD_MAX_BYTES=4.5 MB`), and `buildPathname` helper.
+  - `backend/src/storage/localFileStorage.ts` – writes files to `UPLOAD_DIR` (default `./uploads`), reads back as `Buffer`, re-verifies SHA-256 on every read.
+  - `backend/src/storage/postgresFileStorage.ts` – stores base64-encoded bytes in the JSONB `data` column; `getRecord()` strips the `bytesBase64` field before returning metadata to callers.
+  - `backend/src/storage/blobStorage.ts` – Vercel Blob backend using `access:'private'`, `addRandomSuffix:true`, pathname `institutions/{institutionId}/{kind}/{uuid}.pdf`. SHA-256 computed before upload; stored pathname used for streaming via `get()`.
+  - `backend/src/storage/index.ts` – singleton factory; `resetFileStorage()` exported for testing.
+- **Secure file serving route** (`backend/src/routes/files.ts`):
+  - `POST /files` – server-side upload with PDF magic-byte check, size limit enforcement (413 for files > 10 MB; 413 + redirect message for files > 4.5 MB in blob mode), SHA-256 computed pre-upload.
+  - `POST /files/upload-token` – auth-gated endpoint returning upload configuration for large-file client uploads (blob mode only).
+  - `GET /files/:id` – authenticates caller, enforces role/region scope (CHIEF=all, OFFICER/COMMITTEE=region, INSTITUTION=own files by `sub`), re-verifies SHA-256 hash against stored value (returns **409** on mismatch), sets `Cache-Control: private, no-store`, streams file. No public URLs ever exposed.
+  - `DELETE /files/:id` – DRAFT-only deletion (returns 409 if `isDraft=false`). Submitted evidence is never deleted server-side.
+- **DB schema** (`backend/src/db/schema.ts`): `stored_files` Postgres table with columns `id`, `pathname`, `sha256`, `size`, `content_type`, `institution_id`, `region`, `is_draft`, `uploaded_at`, and `data` (JSONB). Indexes on `institution_id`, `region`, `sha256`, and `pathname`.
+- **Repository interface** (`IStore`): `saveFileRecord`, `getFileRecord`, `deleteFileRecord`, `listFileRecords` added to both `InMemoryStore` and `PostgresStore`.
+- **New env vars** (see `.env.example`):
+  - `STORAGE_MODE=local|postgres|blob` (default: `local`)
+  - `BLOB_READ_WRITE_TOKEN` – server-only, never committed or sent to client
+  - `UPLOAD_DIR=./uploads` – local storage base directory
+- **Test suite** (`backend/src/__tests__/file_storage.test.ts`): 43 tests covering all three storage modes (local, postgres, blob with mocked `@vercel/blob`), `isValidPdfMagicBytes`, SHA-256 integrity, DRAFT-only deletion, and `GET /files/:id` route (401, 403 region scope, 404, 409 hash mismatch, 200 streaming). Full suite: **253 passed / 253**.
+
 ## 2026-10-27 - Proposed Courses & Intake Module
 
 ### Added

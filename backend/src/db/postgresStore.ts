@@ -31,6 +31,7 @@ import {
   RegistrationOtp,
   CourseProposal,
   ProposalStatus,
+  StoredFileRecord,
 } from '../types.js';
 import { createLedgerEntry, GENESIS_HASH } from '../services/ledger.js';
 import { SLA_WINDOW_DAYS_NEW } from '../config/timelines.js';
@@ -1194,6 +1195,64 @@ export class PostgresStore implements IStore {
       .delete(schema.courseProposalsTable)
       .where(eq(schema.courseProposalsTable.id, id));
     return true;
+  }
+
+  // ── Stored file records ───────────────────────────────────────────────────
+
+  async saveFileRecord(record: StoredFileRecord): Promise<StoredFileRecord> {
+    await this.db
+      .insert(schema.storedFilesTable)
+      .values({
+        id: record.id,
+        pathname: record.pathname,
+        sha256: record.sha256,
+        size: record.size,
+        contentType: record.contentType,
+        institutionId: record.institutionId,
+        region: record.region as string,
+        isDraft: record.isDraft ? 1 : 0,
+        uploadedAt: record.uploadedAt,
+        data: record,
+      })
+      .onConflictDoUpdate({
+        target: schema.storedFilesTable.id,
+        set: {
+          institutionId: record.institutionId,
+          region: record.region as string,
+          isDraft: record.isDraft ? 1 : 0,
+          data: record,
+        },
+      });
+    return clone(record);
+  }
+
+  async getFileRecord(id: string): Promise<StoredFileRecord | null> {
+    const rows = await this.db
+      .select({ data: schema.storedFilesTable.data })
+      .from(schema.storedFilesTable)
+      .where(eq(schema.storedFilesTable.id, id))
+      .limit(1);
+    return rows[0] ? clone(rows[0].data as StoredFileRecord) : null;
+  }
+
+  async deleteFileRecord(id: string): Promise<boolean> {
+    await this.db
+      .delete(schema.storedFilesTable)
+      .where(eq(schema.storedFilesTable.id, id));
+    return true;
+  }
+
+  async listFileRecords(filter?: { institutionId?: string }): Promise<StoredFileRecord[]> {
+    const conditions: SQL[] = [];
+    if (filter?.institutionId) {
+      conditions.push(eq(schema.storedFilesTable.institutionId, filter.institutionId));
+    }
+    const query = conditions.length
+      ? this.db.select({ data: schema.storedFilesTable.data }).from(schema.storedFilesTable).where(and(...conditions))
+      : this.db.select({ data: schema.storedFilesTable.data }).from(schema.storedFilesTable);
+
+    const rows = await query;
+    return rows.map((r) => clone(r.data as StoredFileRecord));
   }
 }
 

@@ -746,4 +746,22 @@ export interface CourseProposal {
   submittedAt?: string;
 }
 
+export type StorageMode = 'local' | 'postgres' | 'blob';
+
+export interface StoredFileRecord {
+  id: string;
+  pathname: string;
+  sha256: string;
+  size: number;
+  contentType: string;
+  institutionId: string;
+  region: Region | string;
+  isDraft: boolean;
+  uploadedAt: string;
+  storageMode: StorageMode;
+  bytesBase64?: string;
+  metadata?: Record<string, unknown>;
+}
+
+
 

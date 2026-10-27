@@ -24,6 +24,7 @@ import type {
   User,
   CourseProposal,
   ProposedBranch,
+  StoredFileRecord,
 } from '../types.js';
 
 /**
@@ -243,4 +244,27 @@ export const proposedBranchesTable = pgTable(
   },
   (table) => [index('proposed_branches_proposal_idx').on(table.proposalId)]
 );
+
+export const storedFilesTable = pgTable(
+  'stored_files',
+  {
+    id: text('id').primaryKey(),
+    pathname: text('pathname').notNull(),
+    sha256: text('sha256').notNull(),
+    size: integer('size').notNull(),
+    contentType: text('content_type').notNull(),
+    institutionId: text('institution_id').notNull(),
+    region: text('region').notNull(),
+    isDraft: integer('is_draft').notNull().default(1),
+    uploadedAt: text('uploaded_at').notNull(),
+    data: jsonb('data').$type<StoredFileRecord>().notNull(),
+  },
+  (table) => [
+    index('stored_files_institution_idx').on(table.institutionId),
+    index('stored_files_region_idx').on(table.region),
+    index('stored_files_sha256_idx').on(table.sha256),
+    index('stored_files_pathname_idx').on(table.pathname),
+  ]
+);
+
 

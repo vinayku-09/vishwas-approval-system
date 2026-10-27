@@ -28,6 +28,7 @@ import {
   RegistrationOtp,
   CourseProposal,
   ProposalStatus,
+  StoredFileRecord,
 } from '../types.js';
 import bcrypt from 'bcryptjs';
 import { createLedgerEntry, GENESIS_HASH } from '../services/ledger.js';
@@ -146,6 +147,12 @@ export interface IStore {
   }): Promise<CourseProposal[]>;
   deleteCourseProposal(id: string): Promise<boolean>;
 
+  // Stored file records (metadata only; bytes live in IFileStorage)
+  saveFileRecord(record: StoredFileRecord): Promise<StoredFileRecord>;
+  getFileRecord(id: string): Promise<StoredFileRecord | null>;
+  deleteFileRecord(id: string): Promise<boolean>;
+  listFileRecords(filter?: { institutionId?: string }): Promise<StoredFileRecord[]>;
+
   seed(): Promise<void> | void;
   resetDatabase?(): Promise<void> | void;
 }
@@ -169,6 +176,7 @@ export class InMemoryStore implements IStore {
   private otps: Map<string, RegistrationOtp> = new Map();
   private profiles: Map<string, InstitutionProfile> = new Map();
   private courseProposals: Map<string, CourseProposal> = new Map();
+  private fileRecords: Map<string, StoredFileRecord> = new Map();
 
   constructor() {
     this.seed();
@@ -735,6 +743,28 @@ export class InMemoryStore implements IStore {
     return this.courseProposals.delete(id);
   }
 
+  // Stored file records (metadata only; bytes live in IFileStorage)
+  async saveFileRecord(record: StoredFileRecord): Promise<StoredFileRecord> {
+    this.fileRecords.set(record.id, { ...record });
+    return { ...record };
+  }
+
+  async getFileRecord(id: string): Promise<StoredFileRecord | null> {
+    return this.fileRecords.get(id) ?? null;
+  }
+
+  async deleteFileRecord(id: string): Promise<boolean> {
+    return this.fileRecords.delete(id);
+  }
+
+  async listFileRecords(filter?: { institutionId?: string }): Promise<StoredFileRecord[]> {
+    let all = Array.from(this.fileRecords.values());
+    if (filter?.institutionId) {
+      all = all.filter((r) => r.institutionId === filter.institutionId);
+    }
+    return all;
+  }
+
   resetDatabase(): void {
     if (process.env.ALLOW_DB_RESET !== 'true') {
       throw new Error(
@@ -744,6 +774,7 @@ export class InMemoryStore implements IStore {
     this.otps.clear();
     this.profiles.clear();
     this.courseProposals.clear();
+    this.fileRecords.clear();
     this.applications.clear();
     this.documents.clear();
     this.complianceDocuments.clear();

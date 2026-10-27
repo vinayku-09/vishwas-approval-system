@@ -11,9 +11,9 @@ Last verified locally on **2026-10-26**. No deployment has been performed.
 | Check | Result |
 | :--- | :--- |
 | Backend typecheck | Passed (`npm run build`) |
-| Backend tests | **156 passed / 156** in 13 test files |
+| Backend tests | **253 passed / 253** in 17 test files |
 | Frontend production build | Passed (`next build`, 11/11 pages generated) |
-| Neon migration | Applied; 15 public tables plus `drizzle.__drizzle_migrations` |
+| Neon migration | Applied; 16 public tables plus `drizzle.__drizzle_migrations` |
 | Active backend store | Postgres / Neon |
 | Seeded login and `/auth/me` | Passed |
 | Alert cron, email preview and ledger | Passed with `MAIL_MODE=ethereal` |
@@ -30,7 +30,8 @@ Last verified locally on **2026-10-26**. No deployment has been performed.
 - Universal human-decision safeguard notice on officer advance/review, committee EVC report, case-summary and verification queue screens.
 - Strict workflow state machine, human sign-off gate for rejection, and cryptographic ledger writes.
 - Neon Postgres persistence with Drizzle migrations (`0000_initial`, `0001_undertakings_renewals`) and deterministic demo seed.
-- Multipart PDF/PNG/JPG document upload with SHA-256 hashing and local or Vercel Blob storage.
+- Multipart PDF upload with PDF magic-byte (`%PDF-`) verification, 10 MB size limit, SHA-256 hashing.
+- **Vercel Blob Storage Mode** (`STORAGE_MODE=local|postgres|blob`): private-access Blob uploads with `addRandomSuffix:true`, SHA-256 re-verification on serve, `Cache-Control: private, no-store`, 409 on hash mismatch, DRAFT-only deletion, no public URLs.
 - Daily document-expiry monitor with warning tiers, overdue marking, and application locking.
 - Config-driven reminder and escalation engine, in-app notifications, email adapter and ledger entries.
 - Statutory undertakings lifecycle: condition text, due date, evidence upload with SHA-256 hashing, officer verification queue, rejection safeguards (remarks + sign-off required), and automated overdue marking.
@@ -175,7 +176,7 @@ Values are intentionally omitted. Use `backend/.env.example`, `frontend/.env.exa
 
 | Project | Variable names |
 | :--- | :--- |
-| Backend | `PORT`, `NODE_ENV`, `DATABASE_URL`, `JWT_SECRET`, `CRON_SECRET`, `BANK_ENCRYPTION_KEY`, `BLOB_READ_WRITE_TOKEN`, `AI_GATEWAY_API_KEY`, `AI_GATEWAY_BASE_URL`, `EXTRACTION_MODEL`, `MAIL_MODE`, `MAIL_FROM`, `ALERT_EMAIL_OVERRIDE`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `PORTAL_URL`, `ALLOW_DEMO_HEADER_ROLE`, `OPTIMIZER_URL` |
+| Backend | `PORT`, `NODE_ENV`, `DATABASE_URL`, `JWT_SECRET`, `CRON_SECRET`, `BANK_ENCRYPTION_KEY`, `BLOB_READ_WRITE_TOKEN` (server-only, never client), `STORAGE_MODE`, `UPLOAD_DIR`, `AI_GATEWAY_API_KEY`, `AI_GATEWAY_BASE_URL`, `EXTRACTION_MODEL`, `MAIL_MODE`, `MAIL_FROM`, `ALERT_EMAIL_OVERRIDE`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `PORTAL_URL`, `ALLOW_DEMO_HEADER_ROLE`, `OPTIMIZER_URL` |
 | Frontend | `NEXT_PUBLIC_API_URL` |
 | Optimizer | No runtime environment variables are read by the current Vercel Python function. The backend reaches it through `OPTIMIZER_URL`. |
 | Tests only | `TEST_DATABASE_URL` |
