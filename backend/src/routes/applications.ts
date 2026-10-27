@@ -28,6 +28,7 @@ import {
 } from '../services/routing.js';
 import { createDecisionNotice, createReturnNotice, issueNotice } from '../services/notices.js';
 import { RETURN_CATEGORY_IDS, SAFEGUARD_NOTICE } from '../config/routes.js';
+import { sendNotificationEmail } from '../services/mailer.js';
 
 export const applicationsRouter = new Hono();
 
@@ -511,6 +512,21 @@ applicationsRouter.post('/:id/advance', async (c) => {
     );
   }
 
+  // Real email notification for status change (server-side only, never break user action)
+  store.listUsers().then((users) => {
+    const instUser = users.find((u) => u.institutionName === updated.institutionName);
+    const targetEmail = instUser?.email || process.env.ALERT_EMAIL_OVERRIDE || 'vinaysingh6916@gmail.com';
+    return sendNotificationEmail({
+      to: targetEmail,
+      applicationId: id,
+      subject: `Status changed to ${targetStatus}`,
+      reason: parsed.data.remarks || `Status transitioned from ${application.status} to ${targetStatus}`,
+      portalPath: '/institution',
+    });
+  }).catch((err) => {
+    console.error('[applications:notify:failed]', err?.message || err);
+  });
+
   return c.json(decorateApplication(updated));
 });
 
@@ -581,11 +597,76 @@ applicationsRouter.post('/:id/return', async (c) => {
 
   const notice = await issueNotice(updated, createReturnNotice(updated, record), role);
 
+  // Real email notification for return (server-side only, never break user action)
+  store.listUsers().then((users) => {
+    const instUser = users.find((u) => u.institutionName === updated.institutionName);
+    const targetEmail = instUser?.email || process.env.ALERT_EMAIL_OVERRIDE || 'vinaysingh6916@gmail.com';
+    return sendNotificationEmail({
+      to: targetEmail,
+      applicationId: id,
+      subject: `Application Returned: ${parsed.data.category}`,
+      reason: parsed.data.reason,
+      portalPath: '/institution',
+    });
+  }).catch((err) => {
+    console.error('[applications:return:notify:failed]', err?.message || err);
+  });
+
   return c.json({
     application: decorateApplication(updated),
     return: record,
     notice,
     message: 'Return recorded with reason and category; standard notice issued to the institution.',
+  });
+});
+
+// POST /applications/:id/reply-return - Institution replies to a return notice
+const replyReturnSchema = z.object({
+  remarks: z.string().trim().min(5, 'Clarification remarks required (at least 5 characters)'),
+});
+
+applicationsRouter.post('/:id/reply-return', async (c) => {
+  const user = c.get('user');
+  const role = resolveActorRole(c, 'institution');
+  const id = c.req.param('id');
+  const application = await store.getApplication(id);
+  if (!application) {
+    return c.json({ error: `Application '${id}' not found` }, 404);
+  }
+  if (!canReadApplication(user, application)) {
+    return c.json({ error: 'Forbidden: Application is outside your scope' }, 403);
+  }
+  if (!application.lastReturn) {
+    return c.json({ error: 'Application does not have any active return to reply to' }, 400);
+  }
+
+  const body = await c.req.json().catch(() => null);
+  const parsed = replyReturnSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.errors.map((e) => e.message).join(', ') }, 400);
+  }
+
+  const reply = {
+    returnId: application.lastReturn.id,
+    remarks: parsed.data.remarks,
+    repliedAt: new Date().toISOString(),
+    actor: user.email || role,
+  };
+
+  const updated = await store.updateApplication(id, {
+    returnReply: reply,
+  });
+
+  await store.recordLedger(id, 'RETURN_REPLIED', role, {
+    returnId: application.lastReturn.id,
+    remarks: parsed.data.remarks,
+    actor: user.email || role,
+  });
+
+  return c.json({
+    success: true,
+    application: decorateApplication(updated!),
+    reply,
   });
 });
 

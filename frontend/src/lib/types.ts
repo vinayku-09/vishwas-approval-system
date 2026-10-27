@@ -389,6 +389,12 @@ export interface Application {
   route?: RouteState;
   returns?: ReturnRecord[];
   lastReturn?: ReturnRecord;
+  returnReply?: {
+    returnId: string;
+    remarks: string;
+    repliedAt: string;
+    actor: string;
+  };
 }
 
 export interface StandardNotice {
@@ -464,6 +470,9 @@ export interface User {
   role: UserRole;
   institutionName?: string;
   inspectorId?: string;
+  region?: Region;
+  phone?: string;
+  emailVerified?: boolean;
   createdAt?: string;
 }
 
@@ -475,6 +484,8 @@ export interface AuthUser {
   institutionName?: string;
   inspectorId?: string;
   region?: Region;
+  phone?: string;
+  emailVerified?: boolean;
 }
 
 export interface AuthTokenPayload {
@@ -492,6 +503,7 @@ export interface AuthTokenPayload {
 export interface LoginRequest {
   email: string;
   password: string;
+  role?: UserRole;
 }
 
 export interface LoginResponse {
@@ -571,3 +583,237 @@ export interface EvcBoard {
   items: EvcBoardItem[];
   roleView: DashboardRoleView;
 }
+
+// ---------------------------------------------------------------------------
+// Part 6: Reports, Audit View & Configuration Types
+// ---------------------------------------------------------------------------
+
+export type ReportType =
+  | 'application-pendency'
+  | 'evc-status'
+  | 'undertaking-compliance'
+  | 'document-validity'
+  | 'overdue-cases'
+  | 'region-performance';
+
+export interface ReportColumn {
+  key: string;
+  label: string;
+  align?: 'left' | 'center' | 'right';
+}
+
+export interface ReportResult {
+  reportType: ReportType;
+  title: string;
+  generatedAt: string;
+  filters: {
+    region?: string;
+    fromDate?: string;
+    toDate?: string;
+    [key: string]: string | undefined;
+  };
+  summary: Record<string, string | number>;
+  columns: ReportColumn[];
+  rows: Record<string, any>[];
+}
+
+export interface ReportMeta {
+  id: ReportType;
+  title: string;
+  description: string;
+}
+
+export interface AuditTrailEntry extends LedgerEntry {
+  institutionName: string;
+  region: string;
+  verification: {
+    valid: boolean;
+    brokenAt?: string | null;
+    totalEntries: number;
+    message?: string;
+  };
+}
+
+export interface AuditTrailResponse {
+  totalMatching: number;
+  summary: {
+    totalEntries: number;
+    applicationsAudited: number;
+    verifiedChains: number;
+    brokenChains: number;
+    allEventTypes: string[];
+    allActors: string[];
+  };
+  entries: AuditTrailEntry[];
+}
+
+export interface ConfigResponse {
+  readOnly: boolean;
+  policyStatus: string;
+  generalNotice: string;
+  accessedBy: {
+    role: string;
+    name: string;
+    region: string;
+  };
+  routes: {
+    label: string;
+    notice: string;
+    items: Array<{
+      id: string;
+      name: string;
+      description: string;
+      applicationTypes: string[];
+      stages: Status[];
+      requiresEvc: boolean;
+      decisionStage: string;
+      status: string;
+    }>;
+  };
+  stageTimelines: {
+    label: string;
+    notice: string;
+    defaultDaysPerStage: Record<string, number>;
+    routeDaysPerStage: Record<string, Record<string, number>>;
+    slaWindowsDays: Record<string, number>;
+    warningThresholdFraction: number;
+    approachingDaysLeft: number;
+    ageingBucketEdgesDays: readonly number[];
+    minLandAreaSqmNorm: number;
+    status: string;
+  };
+  reminderTiers: {
+    label: string;
+    notice: string;
+    documentExpiryTiersDays: readonly number[];
+    reminderOffsetsDays: readonly number[];
+    reminderCadenceDescription: string;
+    defaultRecipientRoles: Record<string, string>;
+    status: string;
+  };
+  escalationMatrix: {
+    label: string;
+    notice: string;
+    matrix: Array<{
+      eventType: string;
+      level: number;
+      delayDays: number;
+      delayDescription: string;
+      recipientRole: string;
+      region: string;
+      status: string;
+    }>;
+    hierarchy: Array<{ level: number; target: string; delay: string }>;
+    status: string;
+  };
+  renewalPeriods: {
+    label: string;
+    notice: string;
+    statutoryValidityDaysByDocType: Record<string, number>;
+    defaultRenewalValidityDays: number;
+    defaultUndertakingDurationDays: number;
+    categoryDurationsDays: Record<string, number>;
+    status: string;
+  };
+}
+
+export type ProfileStatus = 'DRAFT' | 'SUBMITTED' | 'UNDER_REVIEW' | 'VERIFIED' | 'DEFICIENT';
+
+export interface ProfileMember {
+  name: string;
+  role: string;
+  idProofNumber: string;
+}
+
+export interface ProfileBankDetails {
+  accountHolder: string;
+  bankName: string;
+  branch: string;
+  accountNumber?: string;
+  maskedAccountNumber?: string;
+  ifsc: string;
+}
+
+export interface ProfileFdrDetails {
+  fdrNumber: string;
+  bankName: string;
+  amount: number;
+  issueDate: string;
+  maturityDate: string;
+  documentId?: string;
+  documentSha256?: string;
+}
+
+export interface ProfileLandDetails {
+  landType: 'OWNED' | 'RENTED';
+  totalAreaSqm: number;
+  khasraOrSurveyNumber?: string;
+  leaseStartDate?: string;
+  leaseEndDate?: string;
+  lessorName?: string;
+  documents: Array<{
+    docType: string;
+    documentId: string;
+    sha256?: string;
+    fileName?: string;
+  }>;
+}
+
+export interface InstitutionProfile {
+  id: string;
+  institutionId: string;
+  institutionName: string;
+  status: ProfileStatus;
+  state: string;
+  region: Region;
+  college: {
+    name: string;
+    fullAddress: string;
+    pin: string;
+    state: string;
+    district: string;
+  };
+  contactPerson: {
+    name: string;
+    designation: string;
+    mobile: string;
+    email: string;
+  };
+  trust: {
+    name: string;
+    registrationNumber: string;
+    members: ProfileMember[];
+  };
+  bank: ProfileBankDetails;
+  fdr: ProfileFdrDetails;
+  land: ProfileLandDetails;
+  statutoryPdfs: Array<{
+    docType: string;
+    documentId: string;
+    sha256?: string;
+    fileName?: string;
+  }>;
+  flaggedItems?: Array<{
+    item: string;
+    reason: string;
+    severity: 'WARNING' | 'CRITICAL';
+  }>;
+  submittedAt?: string;
+  updatedAt: string;
+}
+
+export interface RiskSignal {
+  type: string;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH';
+  score: number;
+  description: string;
+  evidence?: Record<string, unknown>;
+}
+
+export interface RiskEvaluationResult {
+  score: number;
+  level: 'LOW' | 'MEDIUM' | 'HIGH';
+  disclaimer: string;
+  signals: RiskSignal[];
+}
+

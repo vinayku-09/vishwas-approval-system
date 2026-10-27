@@ -175,10 +175,28 @@ Values are intentionally omitted. Use `backend/.env.example`, `frontend/.env.exa
 
 | Project | Variable names |
 | :--- | :--- |
-| Backend | `PORT`, `NODE_ENV`, `DATABASE_URL`, `JWT_SECRET`, `CRON_SECRET`, `BLOB_READ_WRITE_TOKEN`, `AI_GATEWAY_API_KEY`, `AI_GATEWAY_BASE_URL`, `EXTRACTION_MODEL`, `MAIL_MODE`, `MAIL_FROM`, `ALERT_EMAIL_OVERRIDE`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `PORTAL_URL`, `ALLOW_DEMO_HEADER_ROLE`, `OPTIMIZER_URL` |
+| Backend | `PORT`, `NODE_ENV`, `DATABASE_URL`, `JWT_SECRET`, `CRON_SECRET`, `BANK_ENCRYPTION_KEY`, `BLOB_READ_WRITE_TOKEN`, `AI_GATEWAY_API_KEY`, `AI_GATEWAY_BASE_URL`, `EXTRACTION_MODEL`, `MAIL_MODE`, `MAIL_FROM`, `ALERT_EMAIL_OVERRIDE`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `PORTAL_URL`, `ALLOW_DEMO_HEADER_ROLE`, `OPTIMIZER_URL` |
 | Frontend | `NEXT_PUBLIC_API_URL` |
 | Optimizer | No runtime environment variables are read by the current Vercel Python function. The backend reaches it through `OPTIMIZER_URL`. |
 | Tests only | `TEST_DATABASE_URL` |
+
+## R1: Registration, OTP, Institution Profile & Document Risk
+
+- **Landing Page (`/`)**: Public informational portal without role cards or interactive demo jump buttons. Top-right authentication buttons in the Navbar provide access to login and registration.
+- **Registration (`/register`)**: Technical college registration requiring college name, official email, mobile, telephone, state, password (min 8 chars, not equal to email), confirm password, and 6-digit OTP verification via Nodemailer. OTP is stored solely as a SHA-256 hash with a 10-minute expiry, 60s resend cooldown, 5 failed attempts lockout, and enumeration-safe responses. Passwords hashed with bcrypt; `INSTITUTION_REGISTERED` entries recorded in the SHA-256 ledger (IDs only).
+- **State to Region Mapping**: Indian states and union territories deterministically map to AICTE regional offices (Northern, North-Western, Central, Western, Eastern, Southern, South-Western, South-Central) via `backend/src/config/states.ts`.
+- **Login (`/login`)**: Email, password, and role selection dropdown (`INSTITUTION`, `OFFICER`, `COMMITTEE`, `CHIEF`). Server verifies the chosen dropdown role against the account's actual role and rejects mismatches with a generic error to prevent role or account enumeration.
+- **Institution Profile (`/institution/profile`)**: Mandatory prerequisite before creating applications. Saved as draft and editable until submitted:
+  - College details (name, address, PIN, state, district).
+  - Contact person (name, designation, mobile, email).
+  - Trust / Society / Committee (name, registration number, member repeater with ID proof).
+  - Bank credentials: encrypted at rest with AES-256-GCM (`BANK_ENCRYPTION_KEY`), rendered with masked account numbers (`••••••••1234`), and excluded from ledger proofs, logs, and emails.
+  - Security Deposit FDR: number, bank, amount, issue & maturity dates, and PDF upload.
+  - Land ownership: `OWNED` vs `RENTED` toggle with state-specific required documents (`backend/src/config/landDocuments.ts`).
+  - Document uploads: PDF-only magic bytes (`%PDF-`) verification, 10MB limit, SHA-256 hash calculation, stored via storage layer.
+- **Backend Checks on Submit**: OCR extraction runs on all documents, comparing declared vs extracted values (name, land area, lease dates, FDR validity), flags expired or conflicting items, and dispatches a review task to the regional scrutiny officer.
+- **Document Risk Score Engine**: Multi-signal scoring engine (0 to 100, `LOW`/`MEDIUM`/`HIGH`) checking duplicate document hashes across institutions, suspicious PDF editing software signatures (Canva, Photoshop, Illustrator, PDF24), declared vs extracted conflicts, odd/expired dates, and low extraction confidence.
+- **Officer Review Determinations**: Officers review profiles and inspect risk indicators labeled `"risk indicators, not proof"` (system never auto-rejects or blocks). Officers record `NO_CONCERN`, `ASK_CLARIFICATION`, or `REFER` with mandatory remarks, immutably recorded in the ledger.
 
 ## Safeguard
 

@@ -1,5 +1,45 @@
 # Changelog
 
+## 2026-10-27 - Part 6: reports, audit-trail view, configuration, and comprehensive demo seed
+
+### Added
+
+- **Reports Suite (`/reports`, `GET /reports`, `GET /reports/:type`)**:
+  - Six comprehensive MIS reports: Application Pendency, EVC Status, Undertaking Compliance, Document Validity & Renewals, Overdue Cases & Escalations, and Region-Wise Performance (average days per stage, overdue rate, returns).
+  - Multi-dimensional filters: Region (All, North, South, East, West, Central, North East), From Date, To Date, and live row search.
+  - Role- and region-based backend scoping via `canReadApplication` (Head Office / Chief sees all, Regional Officers see assigned jurisdiction, Institutions see own applications).
+  - RFC 4180 compliant CSV export engine supporting both `?format=csv` and `Accept: text/csv` headers with direct client download.
+  - Interactive preview table with formatted cells, status chips, dynamic column rendering, and summary KPI cards.
+- **Head-Office Audit-Trail View (`/audit`, `GET /ledger`)**:
+  - Queryable append-only audit trail filtered by event type, actor, region, date range, and application ID.
+  - Cryptographic ledger verification on every row (`verifyLedgerChain`), confirming valid unbroken hash chains or alerting on integrity breaches.
+  - Modal block inspector displaying previous hash, current block SHA-256 hash, actor, timestamp, and tamper-evident payload.
+- **Read-Only System Configuration (`/configuration`, `GET /config`)**:
+  - Head-office governance view displaying approval routes, stage timeline SLAs, reminder warning tiers (90/60/30 days), hierarchical escalation matrix (Levels 1, 2, 3), and statutory renewal/cure periods.
+  - Prominently labeled with `"placeholder pending APH"` across all sections and rows, with explicit statutory notice that parameters require official Gazette publication.
+- **Insert-Only Demo Dataset (42 Applications, `backend/src/db/demoSeedPart6.ts`)**:
+  - Populates ~42 applications across all 6 administrative regions (`NORTH`, `SOUTH`, `EAST`, `WEST`, `CENTRAL`, `NORTH_EAST`).
+  - Covers all 4 approval routes (`ONLY_SCRUTINY`, `SCRUTINY_EVC`, `EVC_SAC_SHC`, `ONLY_EVC`).
+  - Covers all 10 workflow stages (`SUBMITTED` through `APPEAL_SAC`), return records across 5 categories, SLA states (on-time, approaching, overdue), undertakings across all 5 statuses (`PENDING`, `SUBMITTED`, `VERIFIED`, `REJECTED`, `OVERDUE`), document validity warning tiers (90d, 60d, 30d, expired with system lock), renewals (`SUBMITTED`, `VERIFIED`, `REJECTED`), delayed EVC visits, and active escalations (Levels 1-3).
+  - Strictly insert-only (filters existing IDs before insert), zero real personal data, labelled with synthetic test markers.
+- **Institution Registration & Email Verification (`/register`, `/verify-email`, `POST /auth/register`, `GET /auth/verify-email`)**:
+  - Self-service registration for technical institutions requiring 10+ character passwords, email uniqueness checks, and in-memory rate limiting (5 attempts / 15m).
+  - 24-hour cryptographic token-based email verification workflow; unverified institution accounts are gated from login with HTTP 403.
+  - Automated transactional notification emails via Nodemailer with SHA-256 ledger recording.
+- **Institution Return Reply Workflow (`POST /applications/:id/reply-return`)**:
+  - Allows institutions to submit clarification remarks against active return notices.
+  - Updates application return reply state and records immutable `RETURN_REPLIED` entry on the SHA-256 audit ledger.
+- **Head-Office User Management (`GET /auth/users`, `POST /auth/users`)**:
+  - Scoped to `CHIEF` role, allowing administrative creation of regional officers and committee inspectors with assigned jurisdictions.
+- **Database Reset Safety Guard (`ALLOW_DB_RESET=true`)**:
+  - Reset CLI command (`npm run db:reset`, `backend/src/db/reset.ts`) and store `resetDatabase()` methods refuse execution unless `process.env.ALLOW_DB_RESET === 'true'`.
+- **Compliance Register (`docs/PS_COMPLIANCE.md`)**:
+  - Comprehensive formal compliance record mapping Areas A through F, architectural safeguards, test results, and honest disclosures of draft/partial items.
+- **Automated Test Suite**:
+  - Total test suite: **180 passed out of 180 tests** across 14 test files (including 18 reports tests, 33 auth tests with registration/verification coverage, and 14 access/scoping tests).
+  - Frontend production build: compiled and statically optimized with 0 errors across all 17 routes.
+
+
 ## 2026-10-26 - Part 4: undertakings and renewals
 
 ### Added

@@ -184,6 +184,63 @@ export async function sendAlertEmail(email: AlertEmail): Promise<AlertEmailResul
   return result;
 }
 
+/**
+ * Sends a real notification email (registration, status change, return).
+ * Never throws: logs failures server-side only without breaking the user action.
+ * Bodies contain ONLY application id, one-line reason, portal link.
+ */
+export async function sendNotificationEmail(params: {
+  to: string;
+  applicationId: string;
+  subject: string;
+  reason: string;
+  portalPath?: string;
+}): Promise<AlertEmailResult> {
+  const portalUrl = `${getPortalUrl()}${params.portalPath || '/dashboard'}`;
+  const email: AlertEmail = {
+    to: params.to,
+    subject: `[Vishwas] ${params.subject}: ${params.applicationId}`,
+    text: [
+      `Application: ${params.applicationId}`,
+      `Reason: ${params.reason}`,
+      `Open in portal: ${portalUrl}`,
+    ].join('\n'),
+  };
+
+  try {
+    const res = await sendAlertEmail(email);
+    if (res.status === 'FAILED') {
+      console.error('[mailer:failed]', res.error ? sanitizeError(res.error) : 'Unknown failure');
+    }
+    return res;
+  } catch (err: unknown) {
+    console.error('[mailer:error]', sanitizeError(err));
+    return { status: 'FAILED', error: sanitizeError(err) };
+  }
+}
+
+/**
+ * Sends a 6-digit registration OTP to an applicant institution.
+ * Never logs credentials or OTP in live mode.
+ */
+export async function sendRegistrationOtpEmail(to: string, otp: string): Promise<AlertEmailResult> {
+  const email: AlertEmail = {
+    to,
+    subject: '[Vishwas] AICTE Portal Registration OTP',
+    text: [
+      'All India Council for Technical Education (AICTE)',
+      'Ministry of Education, Government of India',
+      '',
+      `Your 6-digit registration OTP verification code is: ${otp}`,
+      '',
+      'This code expires in 10 minutes. For regulatory security, never disclose this OTP to anyone.',
+      'If you did not request this registration, please disregard this email.',
+    ].join('\n'),
+  };
+
+  return sendAlertEmail(email);
+}
+
 /** Exposed for /health so operators can see which mode is active. */
 export function getMailHealth(): { mode: string; from: string } {
   return {
@@ -191,3 +248,4 @@ export function getMailHealth(): { mode: string; from: string } {
     from: process.env.MAIL_FROM || 'no-reply@vishwas.local',
   };
 }
+

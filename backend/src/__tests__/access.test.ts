@@ -279,4 +279,120 @@ describe('Part 2a — role/region application scoping', () => {
     const allInspections = (await all.json()) as InspectionAssignment[];
     expect(allInspections.length).toBeGreaterThan(westInspections.length);
   });
+
+  it('prevents officer from region A from acting on region B (cross-region block)', async () => {
+    // APP-2024-001 is in NORTH region
+    const appNorth = await store.getApplication('APP-2024-001');
+    expect(appNorth?.region).toBe('NORTH');
+
+    const westToken = await officerWestToken();
+
+    // 1. Advance cross-region application is blocked with 403
+    const advanceRes = await app.request('/applications/APP-2024-001/advance', {
+      method: 'POST',
+      headers: {
+        ...bearer(westToken),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ to: 'SCRUTINY', remarks: 'Cross region attempt' }),
+    });
+    expect(advanceRes.status).toBe(403);
+
+    // 2. Return cross-region application is blocked with 403
+    const returnRes = await app.request('/applications/APP-2024-001/return', {
+      method: 'POST',
+      headers: {
+        ...bearer(westToken),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        to: 'SUBMITTED',
+        category: 'DEFICIENCY',
+        reason: 'Missing statutory documents required',
+      }),
+    });
+    expect(returnRes.status).toBe(403);
+
+    // 3. Create an undertaking for NORTH application, West officer cannot verify
+    const ut = await store.createUndertaking({
+      applicationId: 'APP-2024-001',
+      conditionText: 'Fire safety compliance pending',
+      createdBy: 'officer@aicte.gov.in',
+    });
+
+    const verifyRes = await app.request(`/undertakings/${ut.id}/verify`, {
+      method: 'POST',
+      headers: {
+        ...bearer(westToken),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        decision: 'VERIFIED',
+        remarks: 'Attempted cross-region verification',
+      }),
+    });
+    expect(verifyRes.status).toBe(403);
+  });
+
+  it('restricts officer creation and user management strictly to Head Office (CHIEF)', async () => {
+    const westToken = await officerWestToken();
+    const chief = await chiefToken();
+
+    // Regional officer cannot view user management list
+    const officerList = await app.request('/auth/users', {
+      method: 'GET',
+      headers: bearer(westToken),
+    });
+    expect(officerList.status).toBe(403);
+
+    // Regional officer cannot create new officers
+    const officerCreate = await app.request('/auth/users', {
+      method: 'POST',
+      headers: {
+        ...bearer(westToken),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: 'Rogue Officer',
+        email: 'rogue@aicte.gov.in',
+        role: 'OFFICER',
+        region: 'SOUTH',
+      }),
+    });
+    expect(officerCreate.status).toBe(403);
+
+    // AICTE Head Office (CHIEF) successfully creates a new regional officer
+    const adminCreate = await app.request('/auth/users', {
+      method: 'POST',
+      headers: {
+        ...bearer(chief),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: 'Dr. Ramesh Raman',
+        email: 'officer.south@aicte.gov.in',
+        role: 'OFFICER',
+        region: 'SOUTH',
+        password: 'Password123!',
+      }),
+    });
+    expect(adminCreate.status).toBe(201);
+    const created = (await adminCreate.json()) as { user: { email: string; role: string; region: string } };
+    expect(created.user.email).toBe('officer.south@aicte.gov.in');
+    expect(created.user.role).toBe('OFFICER');
+    expect(created.user.region).toBe('SOUTH');
+
+    // Newly created officer can log in
+    const loginRes = await app.request('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'officer.south@aicte.gov.in',
+        password: 'Password123!',
+      }),
+    });
+    expect(loginRes.status).toBe(200);
+    const loginData = (await loginRes.json()) as { user: { region: string } };
+    expect(loginData.user.region).toBe('SOUTH');
+  });
 });

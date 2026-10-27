@@ -2,9 +2,9 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   ArrowRight,
-  Building2,
   ClipboardCheck,
   Landmark,
   Loader2,
@@ -13,6 +13,8 @@ import {
   ShieldCheck,
   Users,
   UserCheck,
+  Building2,
+  ChevronDown,
 } from 'lucide-react';
 import {
   clearSession,
@@ -22,21 +24,28 @@ import {
   login,
   loginAsDemoRole,
 } from '../../lib/api';
-import { AuthUser } from '../../lib/types';
+import { AuthUser, UserRole } from '../../lib/types';
 
 type DemoRole = keyof typeof DEMO_ACCOUNTS;
 
 const ROLE_ICONS: Record<DemoRole, React.ComponentType<{ className?: string }>> = {
-  institution: Building2,
   officer: ClipboardCheck,
   committee: Users,
   chief: UserCheck,
 };
 
+const ROLE_OPTIONS: Array<{ value: UserRole; label: string; description: string }> = [
+  { value: 'INSTITUTION', label: 'Technical Institution', description: 'Colleges, Polytechnics, Universities' },
+  { value: 'OFFICER', label: 'Scrutiny Officer', description: 'Regional AICTE Scrutiny Officers' },
+  { value: 'COMMITTEE', label: 'Expert Committee', description: 'EVC / Inspection / Appellate Members' },
+  { value: 'CHIEF', label: 'AICTE Chief / Council Head', description: 'Executive Leadership & National Bureau' },
+];
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [role, setRole] = useState<UserRole>('INSTITUTION');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -72,7 +81,7 @@ export default function LoginPage() {
   };
 
   const authenticate = async (
-    credentials: { email: string; password: string },
+    credentials: { email: string; password: string; role?: UserRole },
     demoRole?: DemoRole
   ) => {
     setSubmitting(true);
@@ -83,7 +92,7 @@ export default function LoginPage() {
     setSubmitting(false);
 
     if (!result.data) {
-      setError(result.error || 'Unable to sign in.');
+      setError(result.error || 'Invalid email, password, or role selection');
       return;
     }
 
@@ -96,14 +105,16 @@ export default function LoginPage() {
       setError('Email and password are required.');
       return;
     }
-    await authenticate({ email: email.trim(), password });
+    await authenticate({ email: email.trim(), password, role });
   };
 
-  const handleDemoLogin = async (role: DemoRole) => {
-    const account = DEMO_ACCOUNTS[role];
+  const handleDemoLogin = async (demoKey: DemoRole) => {
+    const account = DEMO_ACCOUNTS[demoKey];
+    const targetRole = demoKey.toUpperCase() as UserRole;
     setEmail(account.email);
     setPassword(account.password);
-    await authenticate({ email: account.email, password: account.password }, role);
+    setRole(targetRole);
+    await authenticate({ email: account.email, password: account.password, role: targetRole }, demoKey);
   };
 
   const handleSignOut = () => {
@@ -125,8 +136,7 @@ export default function LoginPage() {
           </h1>
           <p className="text-sm text-blue-100 mt-3 leading-relaxed">
             Your session is issued as a signed eight-hour JWT. Role, region and
-            institution scope are enforced by the API for every protected
-            request.
+            institution scope are strictly validated for every protected request.
           </p>
 
           {currentUser && (
@@ -188,7 +198,7 @@ export default function LoginPage() {
               })}
             </div>
             <p className="text-[11px] text-blue-200 mt-3">
-              Password for every seeded account: <code>Password123!</code>
+              Password for seeded demo accounts: <code>Password123!</code>
             </p>
           </div>
         </section>
@@ -200,7 +210,7 @@ export default function LoginPage() {
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-900">Secure login</h2>
-              <p className="text-xs text-slate-500">JWT session · 8 hour expiry</p>
+              <p className="text-xs text-slate-500">JWT session · Role Verification</p>
             </div>
           </div>
 
@@ -216,8 +226,31 @@ export default function LoginPage() {
           )}
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+            {/* Role Dropdown */}
             <label className="block">
-              <span className="text-xs font-bold text-slate-700">Email address</span>
+              <span className="text-xs font-bold text-slate-700">Account Role *</span>
+              <div className="mt-1 relative">
+                <select
+                  value={role}
+                  onChange={(e) => setRole(e.target.value as UserRole)}
+                  className="w-full appearance-none rounded-lg border border-slate-300 pl-3 pr-8 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-gov-blue-700/30 focus:border-gov-blue-700 bg-white font-medium"
+                >
+                  {ROLE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label} — {opt.description}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1">
+                Role is cryptographically validated against account records on login.
+              </p>
+            </label>
+
+            {/* Email address */}
+            <label className="block">
+              <span className="text-xs font-bold text-slate-700">Email address *</span>
               <div className="mt-1 relative">
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
@@ -225,15 +258,16 @@ export default function LoginPage() {
                   autoComplete="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
-                  placeholder="officer@aicte.gov.in"
+                  placeholder="e.g. registrar@college.edu.in"
                   className="w-full rounded-lg border border-slate-300 pl-9 pr-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-gov-blue-700/30 focus:border-gov-blue-700"
                   required
                 />
               </div>
             </label>
 
+            {/* Password */}
             <label className="block">
-              <span className="text-xs font-bold text-slate-700">Password</span>
+              <span className="text-xs font-bold text-slate-700">Password *</span>
               <div className="mt-1 relative">
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
@@ -241,7 +275,7 @@ export default function LoginPage() {
                   autoComplete="current-password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder="Password123!"
+                  placeholder="••••••••"
                   className="w-full rounded-lg border border-slate-300 pl-9 pr-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-gov-blue-700/30 focus:border-gov-blue-700"
                   required
                 />
@@ -256,7 +290,7 @@ export default function LoginPage() {
               {submitting ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Signing in...
+                  Authenticating...
                 </>
               ) : (
                 <>
@@ -267,10 +301,16 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-5 rounded-xl bg-slate-50 border border-slate-200 p-3 text-[11px] text-slate-600 leading-relaxed">
-            If the API is offline, the portal can still be explored using local
-            seed data. The amber demo banner will remain visible until a live
-            backend request succeeds.
+          <div className="mt-6 pt-5 border-t border-slate-200 text-center">
+            <p className="text-xs text-slate-600">
+              New Institution?{' '}
+              <Link
+                href="/register"
+                className="font-bold text-gov-blue-800 hover:text-gov-blue-900 underline"
+              >
+                Register your institution
+              </Link>
+            </p>
           </div>
         </section>
       </div>

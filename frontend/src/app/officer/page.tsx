@@ -26,6 +26,7 @@ import {
   Users,
   Undo2,
   FileText,
+  Building2,
 } from 'lucide-react';
 import {
   Application,
@@ -35,6 +36,8 @@ import {
   SignoffDecision,
   Status,
   VerificationQueueData,
+  InstitutionProfile,
+  RiskEvaluationResult,
 } from '../../lib/types';
 import {
   getApplications,
@@ -47,6 +50,9 @@ import {
   getVerificationQueue,
   verifyUndertaking,
   verifyRenewal,
+  getOfficerProfiles,
+  getOfficerProfileRisk,
+  reviewOfficerProfile,
 } from '../../lib/api';
 import { StatusBadge } from '../../components/StatusBadge';
 import { SlaBadge } from '../../components/SlaBadge';
@@ -99,7 +105,7 @@ export default function OfficerPage() {
   const [returnSubmitting, setReturnSubmitting] = useState(false);
 
   // Phase A & D/E: Tab state
-  const [activeTab, setActiveTab] = useState<'APPLICATIONS' | 'EVC_OPTIMIZER' | 'VERIFICATION_QUEUE'>('APPLICATIONS');
+  const [activeTab, setActiveTab] = useState<'APPLICATIONS' | 'EVC_OPTIMIZER' | 'VERIFICATION_QUEUE' | 'PROFILE_REVIEWS'>('APPLICATIONS');
   const [startDate, setStartDate] = useState('2026-11-01');
   const [endDate, setEndDate] = useState('2026-11-07');
   const [optimizing, setOptimizing] = useState(false);
@@ -110,6 +116,16 @@ export default function OfficerPage() {
   const [queueData, setQueueData] = useState<VerificationQueueData>({ undertakings: [], renewals: [] });
   const [queueLoading, setQueueLoading] = useState(false);
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
+
+  // R1: Profile Reviews & Document Risk State
+  const [profileList, setProfileList] = useState<InstitutionProfile[]>([]);
+  const [loadingProfiles, setLoadingProfiles] = useState(false);
+  const [riskModalProfile, setRiskModalProfile] = useState<InstitutionProfile | null>(null);
+  const [riskResult, setRiskResult] = useState<RiskEvaluationResult | null>(null);
+  const [loadingRisk, setLoadingRisk] = useState(false);
+  const [reviewDecision, setReviewDecision] = useState<'NO_CONCERN' | 'ASK_CLARIFICATION' | 'REFER'>('NO_CONCERN');
+  const [reviewRemarks, setReviewRemarks] = useState('');
+  const [submittingReview, setSubmittingReview] = useState(false);
 
   // Reject modal state
   const [rejectModal, setRejectModal] = useState<{
@@ -154,9 +170,24 @@ export default function OfficerPage() {
     }
   };
 
+  const loadProfiles = async () => {
+    setLoadingProfiles(true);
+    try {
+      const res = await getOfficerProfiles();
+      setProfileList(res.data || []);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Failed to load profile reviews: ${msg}`, 'error');
+    } finally {
+      setLoadingProfiles(false);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'VERIFICATION_QUEUE') {
       loadQueue();
+    } else if (activeTab === 'PROFILE_REVIEWS') {
+      loadProfiles();
     }
   }, [activeTab]);
 
@@ -201,6 +232,47 @@ export default function OfficerPage() {
       showToast(`Scheduling failed: ${msg}`, 'error');
     } finally {
       setSchedulingAppId(null);
+    }
+  };
+
+  const handleOpenRisk = async (prof: InstitutionProfile) => {
+    setRiskModalProfile(prof);
+    setLoadingRisk(true);
+    setRiskResult(null);
+    setReviewRemarks('');
+    setReviewDecision('NO_CONCERN');
+    try {
+      const res = await getOfficerProfileRisk(prof.id);
+      if (res.data) setRiskResult(res.data);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Risk check failed: ${msg}`, 'error');
+    } finally {
+      setLoadingRisk(false);
+    }
+  };
+
+  const handleSubmitReview = async () => {
+    if (!riskModalProfile) return;
+    if (!reviewRemarks.trim()) {
+      showToast('Mandatory remarks are required for recording an officer review.', 'error');
+      return;
+    }
+    setSubmittingReview(true);
+    try {
+      const res = await reviewOfficerProfile(riskModalProfile.id, reviewDecision, reviewRemarks.trim());
+      if (res.error) {
+        showToast(res.error, 'error');
+        return;
+      }
+      showToast(`Officer review (${reviewDecision}) recorded with ledger proof.`, 'success');
+      setRiskModalProfile(null);
+      await loadProfiles();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Failed to record review: ${msg}`, 'error');
+    } finally {
+      setSubmittingReview(false);
     }
   };
 
@@ -512,6 +584,22 @@ export default function OfficerPage() {
           <span>Verification Queue</span>
           <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-900 font-extrabold ml-1">
             {queueData.undertakings.length + queueData.renewals.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('PROFILE_REVIEWS')}
+          type="button"
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+            activeTab === 'PROFILE_REVIEWS'
+              ? 'bg-amber-900 text-white shadow'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <Building2 className="w-4 h-4 text-gov-gold" />
+          <span>Profile Reviews & Document Risk</span>
+          <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-900 font-extrabold ml-1">
+            {profileList.length}
           </span>
         </button>
       </div>
@@ -1239,6 +1327,127 @@ export default function OfficerPage() {
     </div>
   )}
 
+  {activeTab === 'PROFILE_REVIEWS' && (
+    <div className="space-y-6">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+          <div>
+            <div className="flex items-center gap-2 text-gov-blue-900 font-bold text-lg">
+              <Building2 className="w-5 h-5 text-gov-saffron" />
+              Regional Institution Profiles & Risk Queue
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Review submitted technical institution statutory profiles, examine multi-signal document risk indicators, and record formal review determinations.
+            </p>
+          </div>
+          <button
+            onClick={loadProfiles}
+            type="button"
+            className="self-start sm:self-auto px-3.5 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-2 shadow-sm transition-colors"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loadingProfiles ? 'animate-spin' : ''}`} />
+            <span>Refresh Profiles</span>
+          </button>
+        </div>
+
+        {loadingProfiles ? (
+          <div className="py-12 flex flex-col items-center justify-center text-slate-500 gap-2">
+            <RefreshCw className="w-6 h-6 animate-spin text-gov-saffron" />
+            <span className="text-xs font-semibold">Loading institutional profiles for your region...</span>
+          </div>
+        ) : profileList.length === 0 ? (
+          <div className="py-12 text-center text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200 space-y-2">
+            <Building2 className="w-8 h-8 mx-auto text-slate-400" />
+            <p className="text-xs font-semibold">No institutional profiles awaiting review in your region.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4">
+            {profileList.map((prof) => (
+              <div
+                key={prof.id}
+                className="p-5 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition-all shadow-xs flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4"
+              >
+                <div className="space-y-2 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <span className="font-bold text-sm text-slate-900">
+                      {prof.college?.name || prof.institutionName}
+                    </span>
+                    <span
+                      className={`px-2.5 py-0.5 rounded text-[10px] font-extrabold uppercase ${
+                        prof.status === 'VERIFIED'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : prof.status === 'SUBMITTED' || prof.status === 'UNDER_REVIEW'
+                          ? 'bg-blue-100 text-blue-800'
+                          : prof.status === 'DEFICIENT'
+                          ? 'bg-rose-100 text-rose-800'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}
+                    >
+                      {prof.status}
+                    </span>
+                    <span className="text-xs text-slate-400">·</span>
+                    <span className="text-xs text-slate-600">
+                      {prof.college?.district ? `${prof.college.district}, ` : ''}{prof.state || prof.college?.state}
+                    </span>
+                    <span className="text-xs text-slate-400">·</span>
+                    <span className="text-xs font-semibold text-gov-blue-800">
+                      Region: {prof.region}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-slate-600 pt-1">
+                    <div>
+                      <span className="font-bold text-slate-700">Trust:</span>{' '}
+                      {prof.trust?.name || 'N/A'}
+                    </div>
+                    <div>
+                      <span className="font-bold text-slate-700">Bank Encrypted:</span>{' '}
+                      <span className="font-mono text-emerald-700">
+                        {prof.bank?.maskedAccountNumber || 'AES-256 Secured'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="font-bold text-slate-700">Land:</span>{' '}
+                      {prof.land?.landType || 'OWNED'} ({prof.land?.totalAreaSqm || 0} sqm)
+                    </div>
+                  </div>
+
+                  {prof.flaggedItems && prof.flaggedItems.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+                      <span className="text-amber-800 font-bold flex items-center gap-1">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                        {prof.flaggedItems.length} automated check flag(s):
+                      </span>
+                      {prof.flaggedItems.slice(0, 2).map((flag, idx) => (
+                        <span
+                          key={idx}
+                          className="bg-amber-50 border border-amber-200 px-2 py-0.5 rounded text-[11px] text-amber-800"
+                        >
+                          {flag.item}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="shrink-0 flex items-center gap-2 self-end lg:self-center">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenRisk(prof)}
+                    className="px-4 py-2.5 rounded-lg bg-gov-blue-900 hover:bg-gov-blue-800 text-white font-semibold text-xs flex items-center gap-2 shadow-sm transition-all"
+                  >
+                    <ShieldCheck className="w-4 h-4 text-gov-gold" />
+                    <span>Check document risk</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )}
+
       {/* REVIEW & HUMAN SIGN-OFF MODAL */}
       {reviewApp && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1730,6 +1939,211 @@ export default function OfficerPage() {
               >
                 {rejectSubmitting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                 <span>Confirm Rejection</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* R1: DOCUMENT RISK SCORE & REGIONAL OFFICER DETERMINATION MODAL */}
+      {riskModalProfile && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+            {/* Modal Header */}
+            <div className="p-5 bg-gov-blue-900 text-white border-b-4 border-gov-saffron flex items-center justify-between">
+              <div>
+                <span className="font-mono text-xs font-bold bg-white/20 px-2 py-0.5 rounded text-white">
+                  {riskModalProfile.id}
+                </span>
+                <h2 className="text-base font-bold mt-1">
+                  Document Risk Assessment · {riskModalProfile.college?.name || riskModalProfile.institutionName}
+                </h2>
+                <p className="text-[11px] text-blue-200 mt-0.5">
+                  Region: {riskModalProfile.region} · State: {riskModalProfile.state || riskModalProfile.college?.state}
+                </p>
+              </div>
+              <button
+                onClick={() => setRiskModalProfile(null)}
+                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-5 overflow-y-auto flex-1">
+              {loadingRisk ? (
+                <div className="py-12 flex flex-col items-center justify-center text-slate-500 gap-2">
+                  <RefreshCw className="w-6 h-6 animate-spin text-gov-saffron" />
+                  <span className="text-xs font-semibold">
+                    Evaluating multi-signal document heuristics (hash duplication, software signatures, declared vs extracted data)...
+                  </span>
+                </div>
+              ) : riskResult ? (
+                <>
+                  {/* Score & Level Display */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                          Composite Document Risk
+                        </span>
+                        <div className="text-3xl font-extrabold text-slate-900 mt-1">
+                          {riskResult.score} <span className="text-sm font-normal text-slate-500">/ 100</span>
+                        </div>
+                      </div>
+                      <div
+                        className={`w-14 h-14 rounded-full flex items-center justify-center font-bold text-lg shadow-sm ${
+                          riskResult.level === 'HIGH'
+                            ? 'bg-rose-100 text-rose-700 border-2 border-rose-300'
+                            : riskResult.level === 'MEDIUM'
+                            ? 'bg-amber-100 text-amber-700 border-2 border-amber-300'
+                            : 'bg-emerald-100 text-emerald-700 border-2 border-emerald-300'
+                        }`}
+                      >
+                        {riskResult.score}
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 flex flex-col justify-center">
+                      <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                        Risk Level
+                      </span>
+                      <div className="mt-1 flex items-center gap-2">
+                        <span
+                          className={`px-3 py-1 rounded text-xs font-extrabold uppercase tracking-wider ${
+                            riskResult.level === 'HIGH'
+                              ? 'bg-rose-600 text-white'
+                              : riskResult.level === 'MEDIUM'
+                              ? 'bg-amber-500 text-white'
+                              : 'bg-emerald-600 text-white'
+                          }`}
+                        >
+                          {riskResult.level} RISK
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Mandatory Statutory Disclaimer Banner */}
+                  <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <span className="text-xs font-extrabold text-amber-900 uppercase tracking-wide">
+                        Statutory Regulatory Disclaimer
+                      </span>
+                      <p className="text-xs text-amber-800 leading-relaxed">
+                        <strong>{riskResult.disclaimer || 'risk indicators, not proof'}:</strong> Risk scores and signals represent automated heuristic indicators for scrutiny officer guidance. <em>System never auto-rejects or blocks applications based on risk indicators.</em> Formal regulatory decisions must be recorded by the regional officer.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Signals List */}
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-gov-blue-800" />
+                      Detected Risk Signals ({riskResult.signals.length})
+                    </h3>
+
+                    {riskResult.signals.length === 0 ? (
+                      <div className="p-4 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2">
+                        <CheckCircle className="w-4 h-4 text-emerald-600" />
+                        <span>No anomalies or risk signals detected in the submitted statutory documents.</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {riskResult.signals.map((sig, idx) => (
+                          <div
+                            key={idx}
+                            className="p-3 rounded-lg border border-slate-200 bg-white space-y-1.5 shadow-xs"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-xs text-slate-900">
+                                {sig.type.replace(/_/g, ' ')}
+                              </span>
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  sig.severity === 'HIGH'
+                                    ? 'bg-rose-100 text-rose-700'
+                                    : sig.severity === 'MEDIUM'
+                                    ? 'bg-amber-100 text-amber-700'
+                                    : 'bg-blue-100 text-blue-700'
+                                }`}
+                              >
+                                {sig.severity} (+{sig.score} pts)
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-600">{sig.description}</p>
+                            {sig.evidence && Object.keys(sig.evidence).length > 0 && (
+                              <pre className="text-[10px] font-mono bg-slate-50 p-2 rounded border border-slate-100 text-slate-700 overflow-x-auto">
+                                {JSON.stringify(sig.evidence, null, 2)}
+                              </pre>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Officer Review Decision Form */}
+                  <div className="space-y-3 pt-3 border-t border-slate-200">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                      Officer Determination & Regulatory Action
+                    </h3>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700">
+                        Determination Decision *
+                      </label>
+                      <select
+                        value={reviewDecision}
+                        onChange={(e) => setReviewDecision(e.target.value as any)}
+                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold bg-white focus:ring-2 focus:ring-gov-blue-700/30"
+                      >
+                        <option value="NO_CONCERN">NO CONCERN — Documents and profile verified satisfactory</option>
+                        <option value="ASK_CLARIFICATION">ASK CLARIFICATION — Request clarification / corrected deed</option>
+                        <option value="REFER">REFER — Refer to Regional Scrutiny Hearing / EVC inspection</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700">
+                        Officer Remarks * (Required for audit proof)
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={reviewRemarks}
+                        onChange={(e) => setReviewRemarks(e.target.value)}
+                        placeholder="State detailed findings, verified deed dates, land record confirmation, or reason for clarification..."
+                        className="mt-1 w-full rounded-lg border border-slate-300 p-2.5 text-xs focus:ring-2 focus:ring-gov-blue-700/30"
+                      />
+                    </div>
+
+                    <p className="text-[10px] text-slate-500 bg-slate-50 p-2 rounded border border-slate-200">
+                      <strong>Audit Trail Guarantee:</strong> Submitting this determination permanently records the decision in the AICTE cryptographic audit ledger (IDs only; no sensitive personal details).
+                    </p>
+                  </div>
+                </>
+              ) : null}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setRiskModalProfile(null)}
+                className="px-4 py-2 rounded-lg bg-white border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                disabled={submittingReview || loadingRisk || !reviewRemarks.trim()}
+                onClick={handleSubmitReview}
+                className="px-5 py-2 rounded-lg bg-gov-blue-900 hover:bg-gov-blue-800 text-white text-xs font-bold transition-all shadow-md disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {submittingReview && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                <span>Record Determination</span>
               </button>
             </div>
           </div>

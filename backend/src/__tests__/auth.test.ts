@@ -537,3 +537,137 @@ describe('6. JWT token payload integrity', () => {
     await expect(verifyJwt(tamperedToken)).rejects.toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// 7. Institution Registration & Email Verification Lifecycle
+// ---------------------------------------------------------------------------
+
+describe('7. Institution Registration & Email Verification Lifecycle', () => {
+  beforeEach(() => {
+    store.seed();
+    clearAllLoginRateLimits();
+  });
+
+  it('rejects registration with passwords under 10 characters', async () => {
+    const res = await app.request('/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        institutionName: 'Short Password Academy',
+        email: 'shortpass@example.edu.in',
+        phone: '9876543210',
+        region: 'NORTH',
+        password: 'Pass1', // only 5 chars
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain('at least 8 characters');
+  });
+
+  it('successfully registers an institution, writes ledger entry, and requires email verification', async () => {
+    const regRes = await app.request('/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        institutionName: 'Nalanda Institute of Technology',
+        email: 'nalanda.reg@example.edu.in',
+        phone: '9876543210',
+        region: 'EAST',
+        password: 'SecurePassword2026!',
+      }),
+    });
+
+    expect(regRes.status).toBe(201);
+    const regData = (await regRes.json()) as any;
+    expect(regData.success).toBe(true);
+    expect(regData.user.email).toBe('nalanda.reg@example.edu.in');
+    expect(regData.user.role).toBe('INSTITUTION');
+    expect(regData.user.region).toBe('EAST');
+
+    // Attempt login before verifying email -> must be rejected with 403
+    const loginPre = await app.request('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'nalanda.reg@example.edu.in',
+        password: 'SecurePassword2026!',
+      }),
+    });
+    expect(loginPre.status).toBe(403);
+    const loginPreBody = (await loginPre.json()) as any;
+    expect(loginPreBody.error).toContain('Email verification required');
+
+    // Fetch user directly to get the verification token
+    const user = await store.getUserByEmail('nalanda.reg@example.edu.in');
+    expect(user).toBeDefined();
+    expect(user?.emailVerified).toBe(false);
+    expect(user?.verificationToken).toBeDefined();
+
+    // Verify email using token
+    const verifyRes = await app.request(`/auth/verify-email?token=${user!.verificationToken}`);
+    expect(verifyRes.status).toBe(200);
+    const verifyBody = (await verifyRes.json()) as any;
+    expect(verifyBody.success).toBe(true);
+
+    // Verify that the user state updated in store
+    const userAfter = await store.getUserByEmail('nalanda.reg@example.edu.in');
+    expect(userAfter?.emailVerified).toBe(true);
+    expect(userAfter?.verificationToken).toBeUndefined();
+
+    // Now login succeeds
+    const loginPost = await app.request('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'nalanda.reg@example.edu.in',
+        password: 'SecurePassword2026!',
+      }),
+    });
+    expect(loginPost.status).toBe(200);
+    const loginData = (await loginPost.json()) as any;
+    expect(loginData.token).toBeDefined();
+    expect(loginData.user.institutionName).toBe('Nalanda Institute of Technology');
+  });
+
+  it('rejects duplicate registration with an existing email', async () => {
+    // Register once
+    const first = await app.request('/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        institutionName: 'Aryabhata College of Engineering',
+        email: 'aryabhata@example.edu.in',
+        phone: '9876543210',
+        region: 'CENTRAL',
+        password: 'StrongPassword123!',
+      }),
+    });
+    expect(first.status).toBe(201);
+
+    // Register duplicate
+    const second = await app.request('/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        institutionName: 'Aryabhata Duplicate',
+        email: 'aryabhata@example.edu.in',
+        phone: '9876543210',
+        region: 'CENTRAL',
+        password: 'StrongPassword123!',
+      }),
+    });
+    expect(second.status).toBe(409);
+    const body = (await second.json()) as any;
+    expect(body.error).toContain('already exists');
+  });
+
+  it('rejects invalid verification tokens', async () => {
+    const res = await app.request('/auth/verify-email?token=bogus-nonexistent-token');
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as any;
+    expect(body.error).toContain('Invalid or already verified');
+  });
+});
+

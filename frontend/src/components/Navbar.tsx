@@ -51,22 +51,35 @@ export function Navbar() {
   };
 
   const view = user ? dashboardRoleView(user) : null;
-  const navLinks = [
-    { href: '/', label: 'Overview' },
-    {
-      href: '/dashboard',
-      label: view === 'institution' ? 'My applications' : 'Pendency Dashboard',
-    },
-    ...(view && view !== 'institution' ? [{ href: '/evc-board', label: 'EVC Board' }] : []),
-    ...(view === 'institution' || !user ? [{ href: '/institution', label: 'Institution Portal' }] : []),
-    ...(view === 'regional_officer' || view === 'bureau_officer' || view === 'head_office'
-      ? [{ href: '/officer', label: 'Officer Queue' }]
-      : []),
-    ...(view === 'committee' || view === 'head_office'
-      ? [{ href: '/committee', label: 'Committee Inspections' }]
-      : []),
-    ...(view && view !== 'institution' ? [{ href: '/alerts', label: 'Alerts & Escalations' }] : []),
-  ];
+  const isInternal = !user || (view && view !== 'institution');
+  const isHeadOfficeOrOfficer =
+    !user || view === 'head_office' || view === 'regional_officer' || view === 'bureau_officer';
+  const isHeadOffice = !user || view === 'head_office';
+
+  const navLinks = user
+    ? [
+        { href: '/', label: 'Overview' },
+        {
+          href: '/dashboard',
+          label: view === 'institution' ? 'My applications' : 'Pendency Dashboard',
+        },
+        ...(view && view !== 'institution' ? [{ href: '/evc-board', label: 'EVC Board' }] : []),
+        ...(view === 'institution' ? [{ href: '/institution', label: 'Institution Portal' }] : []),
+        ...(view === 'regional_officer' || view === 'bureau_officer' || view === 'head_office'
+          ? [{ href: '/officer', label: 'Officer Queue' }]
+          : []),
+        ...(view === 'committee' || view === 'head_office'
+          ? [{ href: '/committee', label: 'Committee Inspections' }]
+          : []),
+        ...(isInternal ? [{ href: '/alerts', label: 'Alerts' }] : []),
+        ...(isInternal ? [{ href: '/reports', label: 'Reports' }] : []),
+        ...(isHeadOfficeOrOfficer ? [{ href: '/audit', label: 'Audit Trail' }] : []),
+        ...(isHeadOffice ? [{ href: '/analytics', label: 'Admin Analytics' }] : []),
+        ...(isHeadOffice ? [{ href: '/configuration', label: 'Configuration' }] : []),
+      ]
+    : [
+        { href: '/', label: 'AICTE Approval Portal' },
+      ];
 
   return (
     <header className="bg-gov-blue-900 text-white border-b-4 border-gov-saffron shadow-md sticky top-0 z-50">
@@ -80,7 +93,7 @@ export function Navbar() {
           </div>
           <div className="flex items-center gap-2 font-mono text-[10px] text-gov-gold">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>AICTE Tamper-Proof Audit Active</span>
+            <span>AICTE Approval Portal</span>
           </div>
         </div>
       </div>
@@ -126,9 +139,9 @@ export function Navbar() {
             })}
           </nav>
 
-          {/* Role Switcher & Notifications */}
+          {/* User Info or Login/Register Buttons */}
           <div className="flex items-center gap-3">
-            <NotificationBell />
+            {user && <NotificationBell />}
 
             {user ? (
               <div className="flex items-center gap-2">
@@ -152,37 +165,21 @@ export function Navbar() {
                 </button>
               </div>
             ) : (
-              <>
-                <div className="hidden xl:flex bg-gov-blue-950/80 border border-white/20 rounded-lg p-1 items-center gap-1 text-xs">
-                  <span className="text-[10px] uppercase font-bold text-blue-300 px-2">
-                    Demo role:
-                  </span>
-                  {(['institution', 'officer', 'committee', 'chief'] as Role[]).map((r) => {
-                    const isSelected = role === r;
-                    return (
-                      <button
-                        key={r}
-                        onClick={() => handleRoleSelect(r)}
-                        type="button"
-                        className={`px-2.5 py-1 rounded text-xs font-semibold capitalize transition-all ${
-                          isSelected
-                            ? 'bg-gov-saffron text-white shadow-sm'
-                            : 'text-blue-200 hover:text-white hover:bg-white/5'
-                        }`}
-                      >
-                        {r}
-                      </button>
-                    );
-                  })}
-                </div>
+              <div className="flex items-center gap-2">
                 <Link
                   href="/login"
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gov-saffron hover:bg-orange-600 text-xs font-bold text-white transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 text-xs font-semibold text-white transition-colors"
                 >
                   <LogIn className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Sign in</span>
+                  <span>Sign in</span>
                 </Link>
-              </>
+                <Link
+                  href="/register"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-gov-saffron hover:bg-orange-600 text-xs font-bold text-white transition-colors shadow-sm"
+                >
+                  <span>Register</span>
+                </Link>
+              </div>
             )}
 
             {/* Mobile menu trigger */}

@@ -26,6 +26,9 @@ async function makeToken(claims: {
 
 describe('Part 4: Undertakings & Renewals (PS Areas D and E)', () => {
   beforeEach(() => {
+    process.env.ALLOW_DB_RESET = 'true';
+    store.resetDatabase?.();
+    delete process.env.ALLOW_DB_RESET;
     store.seed();
     resetAlertEngineForTests();
     setAlertEmailSenderForTests(null);

@@ -116,8 +116,8 @@ export async function optionalAuthMiddleware(c: Context, next: Next): Promise<Re
 /**
  * Enforces that the authenticated user possesses one of the allowed roles.
  */
-export function requireRole(...allowedRoles: string[]) {
-  const normalizedAllowed = allowedRoles.map((r) => r.toUpperCase());
+export function requireRole(...allowedRoles: (string | string[])[]) {
+  const normalizedAllowed = allowedRoles.flat().map((r) => String(r).toUpperCase());
   return async (c: Context, next: Next): Promise<Response | void> => {
     const user = c.get('user');
     if (!user) {

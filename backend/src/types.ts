@@ -335,6 +335,12 @@ export interface Application {
   route?: RouteState;
   returns?: ReturnRecord[];
   lastReturn?: ReturnRecord;
+  returnReply?: {
+    returnId: string;
+    remarks: string;
+    repliedAt: string;
+    actor: string;
+  };
 }
 
 export type NoticeType = 'RETURN' | 'DECISION' | 'ROUTE_ASSIGNMENT';
@@ -413,6 +419,10 @@ export interface User {
   institutionName?: string;
   inspectorId?: string;
   region?: Region;
+  phone?: string;
+  emailVerified?: boolean;
+  verificationToken?: string;
+  verificationExpires?: string;
   createdAt?: string;
 }
 
@@ -424,6 +434,8 @@ export interface AuthUser {
   institutionName?: string;
   inspectorId?: string;
   region?: Region;
+  phone?: string;
+  emailVerified?: boolean;
 }
 
 export interface AuthTokenPayload {
@@ -537,3 +549,120 @@ export interface AlertItem {
   region: Region;
   institutionName?: string;
 }
+
+// ---------------------------------------------------------------------------
+// R1: Registration, OTP & Institution Profile
+// ---------------------------------------------------------------------------
+
+export interface RegistrationOtp {
+  email: string;
+  otpHash: string;
+  expiresAt: number; // timestamp in ms (10 min expiry)
+  attempts: number; // max 5 attempts
+  lastSentAt: number; // for 60s cooldown
+}
+
+export type ProfileStatus = 'DRAFT' | 'SUBMITTED' | 'UNDER_REVIEW' | 'VERIFIED';
+
+export interface TrustMember {
+  name: string;
+  role: string;
+  idProofNumber: string;
+}
+
+export interface ProfileDocumentRef {
+  url: string;
+  hash: string;
+  fileName: string;
+  docName?: string;
+  uploadedAt?: string;
+  expiryDate?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface InstitutionProfile {
+  id: string; // PROF-<institutionId>
+  institutionId: string;
+  institutionName: string;
+  status: ProfileStatus;
+
+  college: {
+    name: string;
+    fullAddress: string;
+    pin: string;
+    state: string;
+    district: string;
+    region: Region;
+  };
+
+  contactPerson: {
+    name: string;
+    designation: string;
+    mobile: string;
+    email: string;
+  };
+
+  trust: {
+    name: string;
+    registrationNumber: string;
+    members: TrustMember[];
+  };
+
+  bank: {
+    accountHolder: string;
+    bank: string;
+    branch: string;
+    ifsc: string;
+    encryptedAccountNumber: string;
+    maskedAccountNumber: string;
+  };
+
+  fdr: {
+    fdrNumber: string;
+    bank: string;
+    amount: number;
+    issueDate: string;
+    maturityDate: string;
+    documentUrl?: string;
+    documentHash?: string;
+    fileName?: string;
+  };
+
+  land: {
+    landType: 'OWNED' | 'RENTED';
+    landAreaSqm: number;
+    stateLandRecord?: ProfileDocumentRef;
+    titleDeed?: ProfileDocumentRef;
+    mutationEntry?: ProfileDocumentRef;
+    conversionOrder?: ProfileDocumentRef;
+    leaseDeed?: ProfileDocumentRef;
+    ownerNoc?: ProfileDocumentRef;
+  };
+
+  documents: {
+    trustRegistration?: ProfileDocumentRef;
+    buildingPlan?: ProfileDocumentRef;
+    fireNoc?: ProfileDocumentRef;
+    [key: string]: ProfileDocumentRef | undefined;
+  };
+
+  missingOrFlaggedItems: Array<{
+    field: string;
+    message: string;
+    severity: 'CRITICAL' | 'WARNING';
+  }>;
+
+  riskAssessment?: any;
+  officerReview?: {
+    decision: 'NO_CONCERN' | 'ASK_CLARIFICATION' | 'REFER';
+    remarks: string;
+    reviewedBy: string;
+    reviewedAt: string;
+  };
+
+  submittedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+

@@ -22,6 +22,7 @@ import {
   LoginResponse,
   Notification,
   OptimizationResult,
+  Region,
   ReturnCategory,
   ReturnRecord,
   Role,
@@ -40,6 +41,13 @@ import {
   PendencyStatus,
   EvcBoard,
   DashboardRoleView,
+  ReportType,
+  ReportResult,
+  ReportMeta,
+  AuditTrailResponse,
+  ConfigResponse,
+  InstitutionProfile,
+  RiskEvaluationResult,
 } from './types';
 import {
   INITIAL_MOCK_APPLICATIONS,
@@ -247,15 +255,9 @@ export async function login(
 }
 
 export const DEMO_ACCOUNTS: Record<
-  (typeof DEMO_ROLES)[number],
+  'officer' | 'committee' | 'chief',
   LoginRequest & { label: string; name: string }
 > = {
-  institution: {
-    email: 'delhi.tech@aicte.gov.in',
-    password: 'Password123!',
-    label: 'Institution',
-    name: 'Delhi Institute of Advanced Technology & AI',
-  },
   officer: {
     email: 'officer@aicte.gov.in',
     password: 'Password123!',
@@ -279,8 +281,8 @@ export const DEMO_ACCOUNTS: Record<
 export async function loginAsDemoRole(
   role: Role
 ): Promise<{ data: LoginResponse | null; error?: string; status?: number }> {
-  const key = role.toLowerCase() as (typeof DEMO_ROLES)[number];
-  const account = DEMO_ACCOUNTS[key] || DEMO_ACCOUNTS.institution;
+  const key = role.toLowerCase() as 'officer' | 'committee' | 'chief';
+  const account = DEMO_ACCOUNTS[key] || DEMO_ACCOUNTS.officer;
   return login({ email: account.email, password: account.password });
 }
 
@@ -1173,7 +1175,7 @@ export function dashboardRoleView(user: AuthUser | null): DashboardRoleView {
 export function dashboardHomePath(user: AuthUser | null): string {
   const view = dashboardRoleView(user);
   if (view === 'committee') return '/evc-board';
-  if (view === 'institution') return '/dashboard';
+  if (view === 'institution') return '/institution';
   return '/dashboard';
 }
 
@@ -1424,4 +1426,430 @@ export async function getVerificationQueue(): Promise<{ data: VerificationQueueD
     isDemo: true,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Part 6: Reports, Audit View & Read-Only Configuration
+// ---------------------------------------------------------------------------
+
+export async function getReportsList(): Promise<{ data: ReportMeta[]; isDemo: boolean }> {
+  const res = await request<{ reports: ReportMeta[] }>('/reports');
+  if (!res.isDemo && res.data) {
+    return { data: res.data.reports, isDemo: false };
+  }
+  return {
+    data: [
+      { id: 'application-pendency', title: 'Application Pendency Report', description: 'Application pendency across all routes, stages, age and SLA statuses' },
+      { id: 'evc-status', title: 'EVC Status Report', description: 'Expert Visit Committee assignments, scheduling, delay and completion status' },
+      { id: 'undertaking-compliance', title: 'Undertaking Compliance Report', description: 'Pending, submitted, verified and overdue undertakings' },
+      { id: 'document-validity', title: 'Document Validity & Renewals Report', description: 'Statutory compliance documents across 90/60/30 day warning tiers and renewal statuses' },
+      { id: 'overdue-cases', title: 'Overdue & Escalated Cases Report', description: 'Overdue applications across SLA targets and multi-tier escalation levels' },
+      { id: 'region-performance', title: 'Region-Wise Performance Report', description: 'Comparative regional KPIs: average days per stage, overdue rate, return rate' },
+    ],
+    isDemo: true,
+  };
+}
+
+export async function getReport(
+  type: ReportType,
+  filters?: { region?: string; fromDate?: string; toDate?: string }
+): Promise<{ data: ReportResult; isDemo: boolean }> {
+  const params = new URLSearchParams();
+  if (filters?.region) params.set('region', filters.region);
+  if (filters?.fromDate) params.set('fromDate', filters.fromDate);
+  if (filters?.toDate) params.set('toDate', filters.toDate);
+  const query = params.toString() ? `?${params.toString()}` : '';
+
+  const res = await request<ReportResult>(`/reports/${type}${query}`);
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+  return {
+    data: {
+      reportType: type,
+      title: type.split('-').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' '),
+      generatedAt: new Date().toISOString(),
+      filters: filters || {},
+      summary: { 'Total Records': 0 },
+      columns: [{ key: 'id', label: 'ID' }],
+      rows: [],
+    },
+    isDemo: true,
+  };
+}
+
+export async function downloadReportCsv(
+  type: ReportType,
+  filters?: { region?: string; fromDate?: string; toDate?: string }
+): Promise<void> {
+  const params = new URLSearchParams();
+  if (filters?.region) params.set('region', filters.region);
+  if (filters?.fromDate) params.set('fromDate', filters.fromDate);
+  if (filters?.toDate) params.set('toDate', filters.toDate);
+  params.set('format', 'csv');
+
+  const role = getStoredRole();
+  const token = getStoredToken();
+  const headers = new Headers();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  } else {
+    headers.set('x-role', role);
+  }
+
+  const res = await fetch(`${API_BASE_URL}/reports/${type}?${params.toString()}`, {
+    headers,
+  });
+
+  if (!res.ok) {
+    throw new ApiError(res.status, `Failed to download CSV: ${res.statusText}`);
+  }
+
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${type}-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+}
+
+export async function getAuditTrail(filters?: {
+  eventType?: string;
+  actor?: string;
+  fromDate?: string;
+  toDate?: string;
+  applicationId?: string;
+  region?: string;
+}): Promise<{ data: AuditTrailResponse; isDemo: boolean }> {
+  const params = new URLSearchParams();
+  if (filters?.eventType) params.set('eventType', filters.eventType);
+  if (filters?.actor) params.set('actor', filters.actor);
+  if (filters?.fromDate) params.set('fromDate', filters.fromDate);
+  if (filters?.toDate) params.set('toDate', filters.toDate);
+  if (filters?.applicationId) params.set('applicationId', filters.applicationId);
+  if (filters?.region) params.set('region', filters.region);
+  const query = params.toString() ? `?${params.toString()}` : '';
+
+  const res = await request<AuditTrailResponse>(`/ledger${query}`);
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+  return {
+    data: {
+      totalMatching: 0,
+      summary: {
+        totalEntries: 0,
+        applicationsAudited: 0,
+        verifiedChains: 0,
+        brokenChains: 0,
+        allEventTypes: [],
+        allActors: [],
+      },
+      entries: [],
+    },
+    isDemo: true,
+  };
+}
+
+export async function getConfig(): Promise<{ data: ConfigResponse; isDemo: boolean }> {
+  const res = await request<ConfigResponse>('/config');
+  if (!res.isDemo && res.data) {
+    return { data: res.data, isDemo: false };
+  }
+  throw new Error('Configuration service unavailable');
+}
+
+export async function requestRegistrationOtp(
+  email: string
+): Promise<{ success?: boolean; message?: string; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth/register/otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { error: body.error || `Failed to send OTP (HTTP ${res.status})` };
+    }
+    return body;
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export interface RegisterPayload {
+  collegeName?: string;
+  institutionName?: string;
+  email: string;
+  mobile?: string;
+  phone?: string;
+  telephone?: string;
+  state?: string;
+  region?: Region;
+  password: string;
+  confirmPassword?: string;
+  otp?: string;
+}
+
+export async function registerInstitution(
+  data: RegisterPayload
+): Promise<{ success?: boolean; message?: string; verificationToken?: string; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { error: body.error || `Registration failed (HTTP ${res.status})` };
+    }
+    return body;
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function getInstitutionProfile(): Promise<{
+  data: InstitutionProfile | null;
+  error?: string;
+}> {
+  try {
+    const res = await request<InstitutionProfile>('/institution/profile');
+    return { data: res.data };
+  } catch (err: unknown) {
+    return { data: null, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function saveInstitutionProfile(
+  profile: Partial<InstitutionProfile>
+): Promise<{ data: InstitutionProfile | null; error?: string }> {
+  try {
+    const res = await request<InstitutionProfile>('/institution/profile', {
+      method: 'POST',
+      body: JSON.stringify(profile),
+    });
+    return { data: res.data };
+  } catch (err: unknown) {
+    return { data: null, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function submitInstitutionProfile(): Promise<{
+  success?: boolean;
+  profile?: InstitutionProfile;
+  error?: string;
+}> {
+  try {
+    const res = await request<{ success: boolean; profile: InstitutionProfile }>(
+      '/institution/profile/submit',
+      {
+        method: 'POST',
+      }
+    );
+    return { success: res.data?.success, profile: res.data?.profile };
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function uploadProfilePdf(
+  file: File,
+  docType: string
+): Promise<{ success?: boolean; document?: any; error?: string }> {
+  const token = getStoredToken();
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('docType', docType);
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/institution/profile/upload`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { error: body.error || `Upload failed (HTTP ${res.status})` };
+    }
+    return body;
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function getOfficerProfiles(): Promise<{
+  data: InstitutionProfile[];
+  error?: string;
+}> {
+  try {
+    const res = await request<InstitutionProfile[]>('/officer/profiles');
+    return { data: res.data || [] };
+  } catch (err: unknown) {
+    return { data: [], error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function getOfficerProfileRisk(
+  profileId: string
+): Promise<{ data: RiskEvaluationResult | null; error?: string }> {
+  try {
+    const res = await request<RiskEvaluationResult>(`/officer/profile/${encodeURIComponent(profileId)}/risk`);
+    return { data: res.data };
+  } catch (err: unknown) {
+    return { data: null, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function reviewOfficerProfile(
+  profileId: string,
+  decision: 'NO_CONCERN' | 'ASK_CLARIFICATION' | 'REFER',
+  remarks: string
+): Promise<{ success?: boolean; error?: string }> {
+  try {
+    const res = await request<{ success: boolean }>(
+      `/officer/profile/${encodeURIComponent(profileId)}/review`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ decision, remarks }),
+      }
+    );
+    return { success: res.data?.success };
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function verifyEmail(
+  token: string
+): Promise<{ success?: boolean; message?: string; user?: AuthUser; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth/verify-email?token=${encodeURIComponent(token)}`);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { error: body.error || `Verification failed (HTTP ${res.status})` };
+    }
+    return body;
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function replyToReturn(
+  applicationId: string,
+  remarks: string
+): Promise<{ data: Application; isDemo: boolean; error?: string }> {
+  const res = await request<{ success: boolean; application: Application }>(
+    `/applications/${encodeURIComponent(applicationId)}/reply-return`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ remarks }),
+    }
+  );
+  if (!res.isDemo && res.data) {
+    return { data: res.data.application, isDemo: false };
+  }
+  return {
+    data: null as unknown as Application,
+    isDemo: true,
+    error: res.error || 'Failed to submit return reply',
+  };
+}
+
+export interface IrregularityRegionStat {
+  region: Region;
+  irregularityScore: number;
+  metrics: {
+    returns: number;
+    rejections: number;
+    overdue: number;
+    escalatedAlerts: number;
+    authenticityRiskFlags: number;
+  };
+  applications: Array<{
+    id: string;
+    institutionName: string;
+    status: Status;
+    type: ApplicationType;
+    region: Region;
+    createdAt: string;
+    returns: number;
+    isRejected: boolean;
+    isOverdue: boolean;
+    escalatedAlerts: number;
+    authenticityRisk: boolean;
+    irregularityScore: number;
+  }>;
+}
+
+export interface IrregularityAnalyticsResponse {
+  formula: string;
+  filters: { fromDate?: string; toDate?: string; metric?: string };
+  regions: IrregularityRegionStat[];
+  timeSeries: Array<Record<string, unknown>>;
+  generatedAt: string;
+}
+
+export async function getIrregularityAnalytics(filters?: {
+  fromDate?: string;
+  toDate?: string;
+  metric?: string;
+}): Promise<{ data: IrregularityAnalyticsResponse; isDemo: boolean; error?: string }> {
+  const params = new URLSearchParams();
+  if (filters?.fromDate) params.set('fromDate', filters.fromDate);
+  if (filters?.toDate) params.set('toDate', filters.toDate);
+  if (filters?.metric) params.set('metric', filters.metric);
+  const query = params.toString() ? `?${params.toString()}` : '';
+
+  try {
+    const res = await request<IrregularityAnalyticsResponse>(`/reports/irregularity-analytics${query}`);
+    if (!res.isDemo && res.data) {
+      return { data: res.data, isDemo: false };
+    }
+    return {
+      data: null as unknown as IrregularityAnalyticsResponse,
+      isDemo: true,
+      error: res.error || 'Failed to load irregularity analytics',
+    };
+  } catch (err: unknown) {
+    const message =
+      err instanceof ApiError ? err.message : err instanceof Error ? err.message : String(err);
+    return {
+      data: null as unknown as IrregularityAnalyticsResponse,
+      isDemo: false,
+      error: message,
+    };
+  }
+}
+
+export async function getAdminUsers(): Promise<{ data: AuthUser[]; isDemo: boolean; error?: string }> {
+  const res = await request<{ users: AuthUser[] }>('/auth/users');
+  if (!res.isDemo && res.data) {
+    return { data: res.data.users, isDemo: false };
+  }
+  return { data: [], isDemo: true, error: res.error };
+}
+
+export async function createAdminUser(userData: {
+  name: string;
+  email: string;
+  role: UserRole;
+  region: Region;
+  password?: string;
+}): Promise<{ data: AuthUser; isDemo: boolean; error?: string }> {
+  const res = await request<{ success: boolean; user: AuthUser }>('/auth/users', {
+    method: 'POST',
+    body: JSON.stringify(userData),
+  });
+  if (!res.isDemo && res.data) {
+    return { data: res.data.user, isDemo: false };
+  }
+  return { data: null as unknown as AuthUser, isDemo: true, error: res.error };
+}
+
+
 

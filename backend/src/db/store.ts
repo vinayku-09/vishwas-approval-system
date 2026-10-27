@@ -23,12 +23,16 @@ import {
   UndertakingStatus,
   UndertakingVerification,
   User,
+  InstitutionProfile,
+  ProfileStatus,
+  RegistrationOtp,
 } from '../types.js';
 import bcrypt from 'bcryptjs';
 import { createLedgerEntry, GENESIS_HASH } from '../services/ledger.js';
 import { computeExpiryState } from '../services/expiry.js';
 import { SLA_WINDOW_DAYS_NEW } from '../config/timelines.js';
 import { DEFAULT_UNDERTAKING_DURATION_DAYS } from '../config/undertakings.js';
+import { populatePart6DemoData } from './demoSeedPart6.js';
 
 export interface IStore {
   listApplications(filters?: { status?: Status; type?: ApplicationType }): Promise<Application[]>;
@@ -123,7 +127,17 @@ export interface IStore {
   saveVerification(verification: UndertakingVerification): Promise<UndertakingVerification>;
   getVerifications(undertakingId: string): Promise<UndertakingVerification[]>;
 
+  // R1: Registration OTP & Institution Profiles
+  saveOtp(otp: RegistrationOtp): Promise<void>;
+  getOtp(email: string): Promise<RegistrationOtp | null>;
+  deleteOtp(email: string): Promise<void>;
+  getProfile(idOrInstitution: string): Promise<InstitutionProfile | null>;
+  saveProfile(profile: InstitutionProfile): Promise<InstitutionProfile>;
+  listProfiles(filters?: { region?: Region; status?: ProfileStatus }): Promise<InstitutionProfile[]>;
+  getAllDocumentHashesExcept(institutionName: string): Promise<Set<string>>;
+
   seed(): Promise<void> | void;
+  resetDatabase?(): Promise<void> | void;
 }
 
 export class InMemoryStore implements IStore {
@@ -142,6 +156,8 @@ export class InMemoryStore implements IStore {
   private undertakings: Map<string, Undertaking> = new Map();
   private evidence: Map<string, UndertakingEvidence[]> = new Map();
   private verifications: Map<string, UndertakingVerification[]> = new Map();
+  private otps: Map<string, RegistrationOtp> = new Map();
+  private profiles: Map<string, InstitutionProfile> = new Map();
 
   constructor() {
     this.seed();
@@ -591,7 +607,95 @@ export class InMemoryStore implements IStore {
     return JSON.parse(JSON.stringify(list));
   }
 
-  seed(): void {
+  // R1: Registration OTP & Institution Profiles
+  async saveOtp(otp: RegistrationOtp): Promise<void> {
+    this.otps.set(otp.email.toLowerCase().trim(), JSON.parse(JSON.stringify(otp)));
+  }
+
+  async getOtp(email: string): Promise<RegistrationOtp | null> {
+    const found = this.otps.get(email.toLowerCase().trim());
+    return found ? JSON.parse(JSON.stringify(found)) : null;
+  }
+
+  async deleteOtp(email: string): Promise<void> {
+    this.otps.delete(email.toLowerCase().trim());
+  }
+
+  async getProfile(idOrInstitution: string): Promise<InstitutionProfile | null> {
+    if (!idOrInstitution) return null;
+    const target = idOrInstitution.toLowerCase().trim();
+    for (const p of this.profiles.values()) {
+      if (
+        (p.id && p.id.toLowerCase() === target) ||
+        (p.institutionId && p.institutionId.toLowerCase() === target) ||
+        (p.institutionName && p.institutionName.toLowerCase() === target) ||
+        (p.college?.name && p.college.name.toLowerCase() === target)
+      ) {
+        return JSON.parse(JSON.stringify(p));
+      }
+    }
+    return null;
+  }
+
+  async saveProfile(profile: InstitutionProfile): Promise<InstitutionProfile> {
+    this.profiles.set(profile.id, JSON.parse(JSON.stringify(profile)));
+    return JSON.parse(JSON.stringify(profile));
+  }
+
+  async listProfiles(filters?: { region?: Region; status?: ProfileStatus }): Promise<InstitutionProfile[]> {
+    let list = Array.from(this.profiles.values());
+    if (filters?.region && filters.region !== 'ALL') {
+      list = list.filter((p) => p.college.region === filters.region || p.college.region === 'ALL');
+    }
+    if (filters?.status) {
+      list = list.filter((p) => p.status === filters.status);
+    }
+    return list
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .map((p) => JSON.parse(JSON.stringify(p)));
+  }
+
+  async getAllDocumentHashesExcept(institutionName: string): Promise<Set<string>> {
+    const hashes = new Set<string>();
+    const norm = institutionName.toLowerCase().trim();
+
+    // From applications & documents
+    for (const app of this.applications.values()) {
+      if (app.institutionName.toLowerCase().trim() !== norm) {
+        const docs = this.documents.get(app.id) || [];
+        for (const d of docs) {
+          if (d.sha256) hashes.add(d.sha256);
+        }
+      }
+    }
+
+    // From other institution profiles
+    for (const prof of this.profiles.values()) {
+      if (prof.institutionName.toLowerCase().trim() !== norm) {
+        if (prof.fdr?.documentHash) hashes.add(prof.fdr.documentHash);
+        if (prof.land?.stateLandRecord?.hash) hashes.add(prof.land.stateLandRecord.hash);
+        if (prof.land?.titleDeed?.hash) hashes.add(prof.land.titleDeed.hash);
+        if (prof.land?.mutationEntry?.hash) hashes.add(prof.land.mutationEntry.hash);
+        if (prof.land?.conversionOrder?.hash) hashes.add(prof.land.conversionOrder.hash);
+        if (prof.land?.leaseDeed?.hash) hashes.add(prof.land.leaseDeed.hash);
+        if (prof.land?.ownerNoc?.hash) hashes.add(prof.land.ownerNoc.hash);
+        for (const doc of Object.values(prof.documents)) {
+          if (doc?.hash) hashes.add(doc.hash);
+        }
+      }
+    }
+
+    return hashes;
+  }
+
+  resetDatabase(): void {
+    if (process.env.ALLOW_DB_RESET !== 'true') {
+      throw new Error(
+        'Database reset refused: ALLOW_DB_RESET=true must be explicitly set to reset database.'
+      );
+    }
+    this.otps.clear();
+    this.profiles.clear();
     this.applications.clear();
     this.documents.clear();
     this.complianceDocuments.clear();
@@ -607,6 +711,12 @@ export class InMemoryStore implements IStore {
     this.users.clear();
     this.alertLogs.clear();
     this.escalations.clear();
+  }
+
+  seed(): void {
+    if (this.applications.size > 0 && this.applications.has('APP-DEMO-021')) {
+      return;
+    }
 
     // -------------------------------------------------------------
     // Phase B Seeds: Demo Users for each Role
@@ -1626,6 +1736,9 @@ export class InMemoryStore implements IStore {
       };
       this.undertakings.set(utOverdue.id, utOverdue);
     }
+
+    // Part 6 Demo Top-Up: 42 total applications across all regions and criteria
+    populatePart6DemoData(this);
   }
 }
 

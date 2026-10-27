@@ -24,6 +24,9 @@ async function officerToken(region: 'WEST' | 'ALL' | 'NORTH'): Promise<string> {
 
 describe('Phase C: Alert & Escalation Engine', () => {
   beforeEach(() => {
+    process.env.ALLOW_DB_RESET = 'true';
+    store.resetDatabase?.();
+    delete process.env.ALLOW_DB_RESET;
     store.seed();
     resetAlertEngineForTests();
     setAlertEmailSenderForTests(null);

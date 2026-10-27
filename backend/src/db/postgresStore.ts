@@ -26,6 +26,9 @@ import {
   UndertakingStatus,
   UndertakingVerification,
   User,
+  InstitutionProfile,
+  ProfileStatus,
+  RegistrationOtp,
 } from '../types.js';
 import { createLedgerEntry, GENESIS_HASH } from '../services/ledger.js';
 import { SLA_WINDOW_DAYS_NEW } from '../config/timelines.js';
@@ -57,6 +60,8 @@ function chunk<T>(items: T[], size = 500): T[][] {
 export class PostgresStore implements IStore {
   private readonly pool: Pool;
   private readonly db: Db;
+  private otps: Map<string, RegistrationOtp> = new Map();
+  private profiles: Map<string, InstitutionProfile> = new Map();
 
   constructor(connection: string | Pool) {
     this.pool =
@@ -810,13 +815,12 @@ export class PostgresStore implements IStore {
     return rows.map((r) => clone(r.data));
   }
 
-  async seed(): Promise<void> {
-    // Demo data: InMemoryStore.seed() includes the Part 3 labelled idempotent
-    // top-up (APP-DEMO-* pendency/EVC records). Copying that source loads the
-    // same labelled demo set into Postgres. Re-running this seed is destructive
-    // then reloads those labelled demo records.
-    const source = new InMemoryStore();
-
+  async resetDatabase(): Promise<void> {
+    if (process.env.ALLOW_DB_RESET !== 'true') {
+      throw new Error(
+        'Database reset refused: ALLOW_DB_RESET=true must be explicitly set to reset database.'
+      );
+    }
     await this.db.delete(schema.verificationsTable);
     await this.db.delete(schema.evidenceTable);
     await this.db.delete(schema.undertakingsTable);
@@ -832,9 +836,17 @@ export class PostgresStore implements IStore {
     await this.db.delete(schema.affiliationsTable);
     await this.db.delete(schema.usersTable);
     await this.db.delete(schema.applicationsTable);
+  }
+
+  async seed(): Promise<void> {
+    // Insert-only idempotent demo seed: never deletes or resets existing data.
+    const source = new InMemoryStore();
 
     const applications = await source.listApplications();
-    for (const batch of chunk(applications)) {
+    const existingApps = await this.listApplications();
+    const existingAppIds = new Set(existingApps.map((a) => a.id));
+    const toInsertApps = applications.filter((app) => !existingAppIds.has(app.id));
+    for (const batch of chunk(toInsertApps)) {
       if (batch.length) {
         await this.db.insert(schema.applicationsTable).values(batch.map((app) => this.applicationRow(app)));
       }
@@ -843,7 +855,12 @@ export class PostgresStore implements IStore {
     const documents = (
       await Promise.all(applications.map((app) => source.getDocuments(app.id)))
     ).flat();
-    for (const batch of chunk(documents)) {
+    const existingDocs = (
+      await Promise.all(existingApps.map((app) => this.getDocuments(app.id)))
+    ).flat();
+    const existingDocIds = new Set(existingDocs.map((d) => d.id));
+    const toInsertDocs = documents.filter((d) => !existingDocIds.has(d.id));
+    for (const batch of chunk(toInsertDocs)) {
       if (batch.length) {
         await this.db.insert(schema.documentsTable).values(
           batch.map((doc) => ({ id: doc.id, applicationId: doc.applicationId, data: doc }))
@@ -854,7 +871,10 @@ export class PostgresStore implements IStore {
     const compliance = (
       await Promise.all(applications.map((app) => source.getComplianceDocuments(app.id)))
     ).flat();
-    for (const batch of chunk(compliance)) {
+    const existingComp = await this.getComplianceDocuments();
+    const existingCompIds = new Set(existingComp.map((c) => c.id));
+    const toInsertComp = compliance.filter((c) => !existingCompIds.has(c.id));
+    for (const batch of chunk(toInsertComp)) {
       if (batch.length) {
         await this.db.insert(schema.complianceDocumentsTable).values(
           batch.map((doc) => ({ id: doc.id, applicationId: doc.applicationId, data: doc }))
@@ -863,7 +883,10 @@ export class PostgresStore implements IStore {
     }
 
     const notifications = await source.listNotifications();
-    for (const batch of chunk(notifications)) {
+    const existingNotifs = await this.listNotifications();
+    const existingNotifIds = new Set(existingNotifs.map((n) => n.id));
+    const toInsertNotifs = notifications.filter((n) => !existingNotifIds.has(n.id));
+    for (const batch of chunk(toInsertNotifs)) {
       if (batch.length) {
         await this.db
           .insert(schema.notificationsTable)
@@ -872,7 +895,10 @@ export class PostgresStore implements IStore {
     }
 
     const inspectors = await source.getInspectors();
-    for (const batch of chunk(inspectors)) {
+    const existingInspectors = await this.getInspectors();
+    const existingInspectorIds = new Set(existingInspectors.map((i) => i.id));
+    const toInsertInspectors = inspectors.filter((i) => !existingInspectorIds.has(i.id));
+    for (const batch of chunk(toInsertInspectors)) {
       if (batch.length) {
         await this.db.insert(schema.inspectorsTable).values(
           batch.map((inspector) => ({
@@ -885,7 +911,10 @@ export class PostgresStore implements IStore {
     }
 
     const affiliations = await source.getAffiliations();
-    for (const batch of chunk(affiliations)) {
+    const existingAffiliations = await this.getAffiliations();
+    const existingAffiliationIds = new Set(existingAffiliations.map((a) => a.id));
+    const toInsertAffiliations = affiliations.filter((a) => !existingAffiliationIds.has(a.id));
+    for (const batch of chunk(toInsertAffiliations)) {
       if (batch.length) {
         await this.db.insert(schema.affiliationsTable).values(
           batch.map((affiliation) => ({
@@ -898,7 +927,10 @@ export class PostgresStore implements IStore {
     }
 
     const inspections = await source.getInspections();
-    for (const batch of chunk(inspections)) {
+    const existingInspections = await this.getInspections();
+    const existingInspectionIds = new Set(existingInspections.map((i) => i.id));
+    const toInsertInspections = inspections.filter((i) => !existingInspectionIds.has(i.id));
+    for (const batch of chunk(toInsertInspections)) {
       if (batch.length) {
         await this.db.insert(schema.inspectionsTable).values(
           batch.map((inspection) => ({
@@ -911,7 +943,10 @@ export class PostgresStore implements IStore {
     }
 
     const users = await source.listUsers();
-    for (const batch of chunk(users)) {
+    const existingUsers = await this.listUsers();
+    const existingUserIds = new Set(existingUsers.map((u) => u.id));
+    const toInsertUsers = users.filter((u) => !existingUserIds.has(u.id));
+    for (const batch of chunk(toInsertUsers)) {
       if (batch.length) {
         await this.db.insert(schema.usersTable).values(
           batch.map((user) => ({
@@ -925,9 +960,12 @@ export class PostgresStore implements IStore {
     }
 
     for (const app of applications) {
+      const existingLedger = await this.getLedger(app.id);
+      const existingLedgerIds = new Set(existingLedger.map((e) => e.id));
       const ledger = await source.getLedger(app.id);
-      let chainIndex = 0;
-      for (const batch of chunk(ledger)) {
+      const toInsertLedger = ledger.filter((e) => !existingLedgerIds.has(e.id));
+      let chainIndex = existingLedger.length;
+      for (const batch of chunk(toInsertLedger)) {
         if (batch.length) {
           await this.db.insert(schema.ledgerTable).values(
             batch.map((entry) => {
@@ -945,7 +983,10 @@ export class PostgresStore implements IStore {
     }
 
     const undertakings = await source.listUndertakings();
-    for (const batch of chunk(undertakings)) {
+    const existingUndertakings = await this.listUndertakings();
+    const existingUtIds = new Set(existingUndertakings.map((u) => u.id));
+    const toInsertUts = undertakings.filter((u) => !existingUtIds.has(u.id));
+    for (const batch of chunk(toInsertUts)) {
       if (batch.length) {
         await this.db.insert(schema.undertakingsTable).values(batch.map((u) => this.undertakingRow(u)));
       }
@@ -954,7 +995,12 @@ export class PostgresStore implements IStore {
     const allEvidence = (
       await Promise.all(undertakings.map((u) => source.getEvidence(u.id)))
     ).flat();
-    for (const batch of chunk(allEvidence)) {
+    const existingEvidence = (
+      await Promise.all(existingUndertakings.map((u) => this.getEvidence(u.id)))
+    ).flat();
+    const existingEvdIds = new Set(existingEvidence.map((e) => e.id));
+    const toInsertEvidence = allEvidence.filter((e) => !existingEvdIds.has(e.id));
+    for (const batch of chunk(toInsertEvidence)) {
       if (batch.length) {
         await this.db.insert(schema.evidenceTable).values(batch.map((e) => this.evidenceRow(e)));
       }
@@ -963,10 +1009,98 @@ export class PostgresStore implements IStore {
     const allVerifications = (
       await Promise.all(undertakings.map((u) => source.getVerifications(u.id)))
     ).flat();
-    for (const batch of chunk(allVerifications)) {
+    const existingVerifications = (
+      await Promise.all(existingUndertakings.map((u) => this.getVerifications(u.id)))
+    ).flat();
+    const existingVerifIds = new Set(existingVerifications.map((v) => v.id));
+    const toInsertVerifications = allVerifications.filter((v) => !existingVerifIds.has(v.id));
+    for (const batch of chunk(toInsertVerifications)) {
       if (batch.length) {
         await this.db.insert(schema.verificationsTable).values(batch.map((v) => this.verificationRow(v)));
       }
     }
   }
+
+  // R1: Registration OTP & Institution Profiles
+  async saveOtp(otp: RegistrationOtp): Promise<void> {
+    this.otps.set(otp.email.toLowerCase().trim(), clone(otp));
+  }
+
+  async getOtp(email: string): Promise<RegistrationOtp | null> {
+    const found = this.otps.get(email.toLowerCase().trim());
+    return found ? clone(found) : null;
+  }
+
+  async deleteOtp(email: string): Promise<void> {
+    this.otps.delete(email.toLowerCase().trim());
+  }
+
+  async getProfile(idOrInstitution: string): Promise<InstitutionProfile | null> {
+    if (!idOrInstitution) return null;
+    const target = idOrInstitution.toLowerCase().trim();
+    for (const p of this.profiles.values()) {
+      if (
+        (p.id && p.id.toLowerCase() === target) ||
+        (p.institutionId && p.institutionId.toLowerCase() === target) ||
+        (p.institutionName && p.institutionName.toLowerCase() === target) ||
+        (p.college?.name && p.college.name.toLowerCase() === target)
+      ) {
+        return clone(p);
+      }
+    }
+    return null;
+  }
+
+  async saveProfile(profile: InstitutionProfile): Promise<InstitutionProfile> {
+    this.profiles.set(profile.id, clone(profile));
+    return clone(profile);
+  }
+
+  async listProfiles(filters?: { region?: Region; status?: ProfileStatus }): Promise<InstitutionProfile[]> {
+    let list = Array.from(this.profiles.values());
+    if (filters?.region && filters.region !== 'ALL') {
+      list = list.filter((p) => p.college.region === filters.region || p.college.region === 'ALL');
+    }
+    if (filters?.status) {
+      list = list.filter((p) => p.status === filters.status);
+    }
+    return list
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .map((p) => clone(p));
+  }
+
+  async getAllDocumentHashesExcept(institutionName: string): Promise<Set<string>> {
+    const hashes = new Set<string>();
+    const norm = institutionName.toLowerCase().trim();
+
+    // From applications & documents
+    const allApps = await this.listApplications();
+    for (const app of allApps) {
+      if (app.institutionName.toLowerCase().trim() !== norm) {
+        const docs = await this.getDocuments(app.id);
+        for (const d of docs) {
+          if (d.sha256) hashes.add(d.sha256);
+        }
+      }
+    }
+
+    // From other institution profiles
+    for (const prof of this.profiles.values()) {
+      if (prof.institutionName.toLowerCase().trim() !== norm) {
+        if (prof.fdr?.documentHash) hashes.add(prof.fdr.documentHash);
+        if (prof.land?.stateLandRecord?.hash) hashes.add(prof.land.stateLandRecord.hash);
+        if (prof.land?.titleDeed?.hash) hashes.add(prof.land.titleDeed.hash);
+        if (prof.land?.mutationEntry?.hash) hashes.add(prof.land.mutationEntry.hash);
+        if (prof.land?.conversionOrder?.hash) hashes.add(prof.land.conversionOrder.hash);
+        if (prof.land?.leaseDeed?.hash) hashes.add(prof.land.leaseDeed.hash);
+        if (prof.land?.ownerNoc?.hash) hashes.add(prof.land.ownerNoc.hash);
+        for (const doc of Object.values(prof.documents)) {
+          if (doc?.hash) hashes.add(doc.hash);
+        }
+      }
+    }
+
+    return hashes;
+  }
 }
+

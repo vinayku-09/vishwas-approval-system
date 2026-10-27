@@ -30,6 +30,7 @@ import {
   DocumentMetadata,
   DocumentType,
   Undertaking,
+  InstitutionProfile,
 } from '../../lib/types';
 import {
   getApplications,
@@ -41,6 +42,9 @@ import {
   getUndertakings,
   uploadUndertakingEvidence,
   submitRenewal,
+  getStoredUser,
+  replyToReturn,
+  getInstitutionProfile,
 } from '../../lib/api';
 import { StatusBadge } from '../../components/StatusBadge';
 import { SlaBadge } from '../../components/SlaBadge';
@@ -63,6 +67,11 @@ export default function InstitutionPage() {
   const [loadingDrawerData, setLoadingDrawerData] = useState(false);
   const [extracting, setExtracting] = useState(false);
 
+  // Return Reply state
+  const [replyRemarks, setReplyRemarks] = useState('');
+  const [submittingReply, setSubmittingReply] = useState(false);
+  const [replyError, setReplyError] = useState<string | null>(null);
+
   // Upload state
   const [uploadingDocType, setUploadingDocType] = useState<DocumentType | null>(null);
   const [uploadingUndertakingId, setUploadingUndertakingId] = useState<string | null>(null);
@@ -72,6 +81,7 @@ export default function InstitutionPage() {
   // New Application Dialog state
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [formData, setFormData] = useState<{
     institutionName: string;
     type: ApplicationType;
@@ -86,12 +96,40 @@ export default function InstitutionPage() {
     fireNocExpiry: '2028-06-30',
   });
 
+  // Institution Profile state
+  const [profile, setProfile] = useState<InstitutionProfile | null>(null);
+  const [profileWarningModal, setProfileWarningModal] = useState(false);
+
+  const openNewModal = () => {
+    // R1: Institution Profile is mandatory before applying
+    if (
+      !profile ||
+      (profile.status !== 'SUBMITTED' &&
+        profile.status !== 'UNDER_REVIEW' &&
+        profile.status !== 'VERIFIED')
+    ) {
+      setProfileWarningModal(true);
+      return;
+    }
+    const user = getStoredUser();
+    setFormData((prev) => ({
+      ...prev,
+      institutionName: user?.institutionName || prev.institutionName || '',
+    }));
+    setCreateError(null);
+    setIsNewModalOpen(true);
+  };
+
   const loadData = async () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await getApplications();
-      setApplications(res.data || []);
+      const [appsRes, profRes] = await Promise.all([
+        getApplications(),
+        getInstitutionProfile(),
+      ]);
+      setApplications(appsRes.data || []);
+      if (profRes.data) setProfile(profRes.data);
     } catch (err) {
       setApplications([]);
       setLoadError(
@@ -142,10 +180,11 @@ export default function InstitutionPage() {
     e.preventDefault();
     if (!formData.institutionName.trim()) return;
 
-    setSubmitting(false);
+    setSubmitting(true);
+    setCreateError(null);
     try {
       const res = await createApplication({
-        institutionName: formData.institutionName,
+        institutionName: formData.institutionName.trim(),
         type: formData.type,
         extracted: {
           landAreaSqm: Number(formData.landAreaSqm),
@@ -165,9 +204,15 @@ export default function InstitutionPage() {
       await loadData();
       if (res.data) {
         setSelectedApp(res.data);
+        setUploadSuccessMsg(
+          `Application ${res.data.id} submitted successfully! Recorded in the immutable audit ledger.`
+        );
+        setTimeout(() => setUploadSuccessMsg(null), 7000);
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to create application:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      setCreateError(msg);
     } finally {
       setSubmitting(false);
     }
@@ -264,6 +309,28 @@ export default function InstitutionPage() {
     }
   };
 
+  const handleReplyReturn = async () => {
+    if (!selectedApp || !replyRemarks.trim()) return;
+    setSubmittingReply(true);
+    setReplyError(null);
+
+    try {
+      const res = await replyToReturn(selectedApp.id, replyRemarks.trim());
+      if (res.error) {
+        setReplyError(res.error);
+        return;
+      }
+      setSelectedApp(res.data);
+      setApplications((prev) => prev.map((a) => (a.id === res.data.id ? res.data : a)));
+      setReplyRemarks('');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setReplyError(`Failed to submit reply: ${msg}`);
+    } finally {
+      setSubmittingReply(false);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
 
@@ -290,16 +357,111 @@ export default function InstitutionPage() {
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
-          <button
-            onClick={() => setIsNewModalOpen(true)}
-            type="button"
-            className="px-4 py-2.5 rounded-lg bg-gov-blue-900 hover:bg-gov-blue-800 text-white font-semibold text-xs sm:text-sm flex items-center gap-2 shadow-sm transition-all"
+            <Link
+              href="/institution/profile"
+              className="px-4 py-2.5 rounded-lg border border-gov-blue-900 text-gov-blue-900 hover:bg-blue-50 font-semibold text-xs sm:text-sm flex items-center gap-2 shadow-sm transition-all"
+            >
+              <Building2 className="w-4 h-4 text-gov-saffron" />
+              <span>Institution Profile</span>
+            </Link>
+            <button
+              onClick={openNewModal}
+              type="button"
+              className="px-4 py-2.5 rounded-lg bg-gov-blue-900 hover:bg-gov-blue-800 text-white font-semibold text-xs sm:text-sm flex items-center gap-2 shadow-sm transition-all"
+            >
+              <PlusCircle className="w-4 h-4 text-gov-saffron" />
+              <span>New Application</span>
+            </button>
+          </div>
+        </div>
+
+      {/* Mandatory Institutional Profile Status Card */}
+      <div className="bg-gradient-to-r from-blue-950 to-gov-blue-900 text-white rounded-xl p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 border border-blue-900">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            <h2 className="text-sm font-bold uppercase tracking-wider text-gov-gold">
+              AICTE Statutory Profile Compliance
+            </h2>
+            <span
+              className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                profile?.status === 'VERIFIED'
+                  ? 'bg-emerald-500 text-white'
+                  : profile?.status === 'SUBMITTED' || profile?.status === 'UNDER_REVIEW'
+                  ? 'bg-blue-500 text-white'
+                  : profile?.status === 'DEFICIENT'
+                  ? 'bg-red-500 text-white'
+                  : 'bg-amber-400 text-slate-900'
+              }`}
+            >
+              {profile?.status || 'NOT CREATED'}
+            </span>
+          </div>
+          <p className="text-xs text-blue-200 max-w-2xl">
+            {profile?.status === 'SUBMITTED' || profile?.status === 'UNDER_REVIEW' || profile?.status === 'VERIFIED'
+              ? 'Institutional Profile submitted. Sponsoring trust, land title deeds, bank details (AES-256 encrypted), and FDR validation are on record.'
+              : 'Mandatory Requirement: You must complete and submit your statutory Institution Profile before applying for new affiliations or intake variations.'}
+          </p>
+        </div>
+
+        <div className="shrink-0 flex items-center gap-2">
+          <Link
+            href="/institution/profile"
+            className="px-4 py-2 rounded-lg bg-gov-saffron hover:bg-orange-600 text-white text-xs font-bold transition-all shadow-sm"
           >
-            <PlusCircle className="w-4 h-4 text-gov-saffron" />
-            <span>New Application</span>
-          </button>
+            {profile ? 'View / Edit Profile' : 'Complete Profile Now'}
+          </Link>
         </div>
       </div>
+
+      {/* Profile Warning Modal when attempting to create application without profile */}
+      {profileWarningModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="w-12 h-12 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <div className="text-center space-y-2">
+              <h3 className="text-lg font-bold text-slate-900">
+                Institution Profile Required
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Under AICTE Approval Process Regulations (R1), every technical institution must complete and submit its statutory <strong>Institution Profile</strong> (including Trust details, Bank AES-256 encryption, Land deed, and AICTE security FDR) prior to filing new applications.
+              </p>
+            </div>
+            <div className="pt-2 flex flex-col gap-2">
+              <Link
+                href="/institution/profile"
+                className="w-full text-center px-4 py-2.5 rounded-lg bg-gov-blue-900 hover:bg-gov-blue-800 text-white text-xs font-bold transition-colors"
+              >
+                Go to Institution Profile
+              </Link>
+              <button
+                type="button"
+                onClick={() => setProfileWarningModal(false)}
+                className="w-full text-center px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {uploadSuccessMsg && (
+        <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 text-xs flex items-center justify-between shadow-xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+            <span className="font-semibold">{uploadSuccessMsg}</span>
+          </div>
+          <button
+            onClick={() => setUploadSuccessMsg(null)}
+            className="text-emerald-700 hover:text-emerald-900"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {loadError && (
         <div className="p-4 rounded-xl border border-red-200 bg-red-50 text-red-800 text-xs">
@@ -330,7 +492,7 @@ export default function InstitutionPage() {
               Get started by submitting your institution's affiliation or expansion proposal.
             </p>
             <button
-              onClick={() => setIsNewModalOpen(true)}
+              onClick={openNewModal}
               className="mt-2 px-4 py-2 bg-gov-blue-900 text-white text-xs font-semibold rounded-lg"
             >
               Submit First Application
@@ -520,6 +682,65 @@ export default function InstitutionPage() {
               {/* TAB 1: OVERVIEW & AI SCRUTINY */}
               {activeDrawerTab === 'overview' && (
                 <div className="space-y-6">
+                  {/* Return Notice & Reply Box */}
+                  {selectedApp.lastReturn && (
+                    <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle className="w-5 h-5 text-amber-600" />
+                          <h4 className="text-sm font-bold text-amber-900">
+                            Application Returned: {selectedApp.lastReturn.category}
+                          </h4>
+                        </div>
+                        <span className="text-[11px] text-amber-700">
+                          {formatDate(selectedApp.lastReturn.timestamp)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-amber-800 bg-white/70 p-2.5 rounded-lg border border-amber-200">
+                        <strong>Reason:</strong> {selectedApp.lastReturn.reason}
+                      </p>
+
+                      {selectedApp.returnReply ? (
+                        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-800">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                            <span>Reply Submitted ({formatDate(selectedApp.returnReply.repliedAt)})</span>
+                          </div>
+                          <p className="text-xs text-emerald-700 mt-1">
+                            {selectedApp.returnReply.remarks}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="pt-2 border-t border-amber-200 space-y-2">
+                          <label className="block text-xs font-bold text-amber-900">
+                            Submit Clarification / Reply to Return:
+                          </label>
+                          <textarea
+                            rows={3}
+                            value={replyRemarks}
+                            onChange={(e) => setReplyRemarks(e.target.value)}
+                            placeholder="Provide clarifications, document references, or your response to the return reason..."
+                            className="w-full text-xs p-2.5 rounded-lg border border-amber-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                          />
+                          {replyError && (
+                            <p className="text-xs text-red-600 font-medium">{replyError}</p>
+                          )}
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              onClick={handleReplyReturn}
+                              disabled={submittingReply || !replyRemarks.trim()}
+                              className="px-4 py-2 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-1.5"
+                            >
+                              {submittingReply ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
+                              <span>Submit Clarification Reply</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Status & SLA Bar */}
                   <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200">
                     <div>
@@ -1101,6 +1322,15 @@ export default function InstitutionPage() {
             </div>
 
             <form onSubmit={handleCreateSubmit} className="p-6 space-y-4">
+              {createError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold">Submission Failed</p>
+                    <p className="mt-0.5">{createError}</p>
+                  </div>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                   Institution Name *

@@ -149,4 +149,49 @@ export function resetLoginAttempts(email: string): void {
  */
 export function clearAllLoginRateLimits(): void {
   loginAttempts.clear();
+  registrationAttempts.clear();
+}
+
+const registrationAttempts = new Map<string, RateLimitRecord>();
+
+/**
+ * Checks whether registration is rate-limited for an IP or email.
+ */
+export function isRegisterRateLimited(identifier: string, now = Date.now()): {
+  limited: boolean;
+  retryAfterSeconds?: number;
+} {
+  const key = identifier.toLowerCase().trim();
+  const record = registrationAttempts.get(key);
+  if (!record) {
+    return { limited: false };
+  }
+
+  if (now - record.windowStart > RATE_LIMIT_WINDOW_MS) {
+    registrationAttempts.delete(key);
+    return { limited: false };
+  }
+
+  if (record.failures >= MAX_FAILED_ATTEMPTS) {
+    const remainingMs = RATE_LIMIT_WINDOW_MS - (now - record.windowStart);
+    return {
+      limited: true,
+      retryAfterSeconds: Math.max(1, Math.ceil(remainingMs / 1000)),
+    };
+  }
+
+  return { limited: false };
+}
+
+/**
+ * Records a registration attempt.
+ */
+export function recordRegisterAttempt(identifier: string, now = Date.now()): void {
+  const key = identifier.toLowerCase().trim();
+  const record = registrationAttempts.get(key);
+  if (!record || now - record.windowStart > RATE_LIMIT_WINDOW_MS) {
+    registrationAttempts.set(key, { failures: 1, windowStart: now });
+  } else {
+    record.failures += 1;
+  }
 }

@@ -11,6 +11,9 @@ import { authRouter } from './routes/auth.js';
 import { escalationsRouter } from './routes/escalations.js';
 import { dashboardsRouter } from './routes/dashboards.js';
 import { undertakingsRouter, complianceRouter, officerQueueRouter } from './routes/undertakings.js';
+import { reportsRouter } from './routes/reports.js';
+import { configRouter } from './routes/config.js';
+import { profileRouter } from './routes/profile.js';
 import { getMailHealth } from './services/mailer.js';
 import { initializeStore } from './db/index.js';
 
@@ -58,6 +61,10 @@ app.route('/dashboards', dashboardsRouter);
 app.route('/undertakings', undertakingsRouter);
 app.route('/compliance', complianceRouter);
 app.route('/officer/verification-queue', officerQueueRouter);
+app.route('/reports', reportsRouter);
+app.route('/config', configRouter);
+app.route('/institution/profile', profileRouter);
+app.route('/', profileRouter);
 
 // Global 404 handler
 app.notFound((c) => {
