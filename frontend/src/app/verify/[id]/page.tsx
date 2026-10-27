@@ -60,9 +60,11 @@ export default function VerifyPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [accessNotice, setAccessNotice] = useState<string | null>(null);
   const [isChief, setIsChief] = useState(false);
+  const [authenticated, setAuthenticated] = useState(false);
 
   useEffect(() => {
     setIsChief(getStoredUser()?.role?.toUpperCase() === 'CHIEF');
+    setAuthenticated(isAuthenticated());
   }, []);
 
   const loadData = async () => {
@@ -227,7 +229,7 @@ export default function VerifyPage() {
         {accessNotice && (
           <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-xs">
             {accessNotice}{' '}
-            {!isAuthenticated() && (
+            {!authenticated && (
               <Link
                 href={`/login?next=${encodeURIComponent(`/verify/${id}`)}`}
                 className="font-bold underline"

@@ -53,6 +53,7 @@ function matchesChip(item: EvcBoardItem, chip: BoardChip): boolean {
 
 export default function EvcBoardPage() {
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [data, setData] = useState<EvcBoard | null>(null);
   const [isDemo, setIsDemo] = useState(false);
@@ -86,6 +87,7 @@ export default function EvcBoardPage() {
   }, [region]);
 
   useEffect(() => {
+    setMounted(true);
     const current = getStoredUser();
     setUser(current);
     if (!isAuthenticated()) {
@@ -97,14 +99,20 @@ export default function EvcBoardPage() {
 
   const visibleItems = (data?.items || []).filter((item) => matchesChip(item, chip));
 
+  if (!mounted) {
+    return (
+      <div suppressHydrationWarning className="max-w-7xl mx-auto px-4 py-8 text-sm text-slate-600">Loading EVC board…</div>
+    );
+  }
+
   if (!isAuthenticated() && !user) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-8 text-sm text-slate-600">Redirecting to sign in…</div>
+      <div suppressHydrationWarning className="max-w-7xl mx-auto px-4 py-8 text-sm text-slate-600">Redirecting to sign in…</div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div suppressHydrationWarning className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       <DemoBanner />
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>

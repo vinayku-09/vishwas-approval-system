@@ -16,8 +16,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="bg-slate-50 text-slate-900 flex flex-col min-h-screen">
+    <html lang="en" suppressHydrationWarning>
+      <body className="bg-slate-50 text-slate-900 flex flex-col min-h-screen" suppressHydrationWarning>
         <Navbar />
         <DemoBanner />
         <MailModeBanner />

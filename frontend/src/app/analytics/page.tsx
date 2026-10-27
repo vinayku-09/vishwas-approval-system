@@ -43,8 +43,9 @@ const REGION_NAMES: Record<Region, string> = {
 };
 
 export default function AnalyticsPage() {
-  const [user, setUser] = useState(getStoredUser());
-  const [role, setRole] = useState(getStoredRole());
+  const [mounted, setMounted] = useState(false);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [role, setRole] = useState<Role>('institution');
   const [data, setData] = useState<IrregularityAnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -95,6 +96,7 @@ export default function AnalyticsPage() {
   }, []);
 
   useEffect(() => {
+    setMounted(true);
     const currentUser = getStoredUser();
     const currentRole = getStoredRole();
     setUser(currentUser);
@@ -149,9 +151,17 @@ export default function AnalyticsPage() {
     return 'bg-red-100 text-red-800 border-red-200';
   };
 
+  if (!mounted) {
+    return (
+      <div suppressHydrationWarning className="max-w-4xl mx-auto px-4 py-16 text-center text-slate-500 text-sm">
+        Loading analytics…
+      </div>
+    );
+  }
+
   if (!isChief) {
     return (
-      <div className="max-w-4xl mx-auto px-4 py-16 text-center">
+      <div suppressHydrationWarning className="max-w-4xl mx-auto px-4 py-16 text-center">
         <div className="w-16 h-16 mx-auto rounded-full bg-red-100 text-red-600 flex items-center justify-center mb-4">
           <ShieldAlert className="w-8 h-8" />
         </div>

@@ -53,6 +53,7 @@ const STANDARD_DIVISIONS = [30, 60, 120, 180, 240, 300];
 
 export default function InstitutionProposalsPage() {
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -94,6 +95,7 @@ export default function InstitutionProposalsPage() {
 
   // Load Institution Profile and Proposals
   useEffect(() => {
+    setMounted(true);
     async function loadData() {
       setLoading(true);
       setError(null);
@@ -470,9 +472,9 @@ export default function InstitutionProposalsPage() {
     }
   };
 
-  if (loading) {
+  if (!mounted || loading) {
     return (
-      <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center p-6">
+      <div suppressHydrationWarning className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center p-6">
         <div className="text-center space-y-3">
           <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto" />
           <p className="text-slate-400 text-sm">Loading course & intake module...</p>
@@ -482,7 +484,7 @@ export default function InstitutionProposalsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div suppressHydrationWarning className="min-h-screen bg-slate-950 text-slate-100">
       {/* Top Header */}
       <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-4">
