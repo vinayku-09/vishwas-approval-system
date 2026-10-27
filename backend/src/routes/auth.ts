@@ -139,7 +139,10 @@ authRouter.post('/register/otp', async (c) => {
   });
 
   // Send OTP email via Nodemailer
-  await sendRegistrationOtpEmail(email, rawOtp);
+  const mailResult = await sendRegistrationOtpEmail(email, rawOtp);
+  if (mailResult.status === 'FAILED') {
+    console.error(`[auth:otp] Failed to dispatch OTP email to ${email}: ${mailResult.error}`);
+  }
 
   return c.json({
     success: true,

@@ -21,6 +21,7 @@ export interface AlertEmail {
   to: string;
   subject: string;
   text: string;
+  skipOverride?: boolean;
 }
 
 export interface AlertEmailResult {
@@ -106,7 +107,7 @@ export function resolveAlertRecipient(to: string, override = process.env.ALERT_E
 async function sendOnce(email: AlertEmail): Promise<AlertEmailResult> {
   const mode = getMailMode();
   const from = process.env.MAIL_FROM || 'no-reply@vishwas.local';
-  const recipient = resolveAlertRecipient(email.to);
+  const recipient = email.skipOverride ? email.to.trim() : resolveAlertRecipient(email.to);
 
   if (!recipient) {
     return { status: 'SKIPPED', error: 'No recipient configured' };
@@ -156,7 +157,9 @@ async function sendOnce(email: AlertEmail): Promise<AlertEmailResult> {
     });
     return { status: 'SENT' };
   } catch (err: unknown) {
-    return { status: 'FAILED', error: sanitizeError(err) };
+    const sanitized = sanitizeError(err);
+    console.error(`[mail:live] SMTP delivery to ${recipient} failed: ${sanitized}`);
+    return { status: 'FAILED', error: sanitized };
   }
 }
 
@@ -236,6 +239,7 @@ export async function sendRegistrationOtpEmail(to: string, otp: string): Promise
       'This code expires in 10 minutes. For regulatory security, never disclose this OTP to anyone.',
       'If you did not request this registration, please disregard this email.',
     ].join('\n'),
+    skipOverride: true,
   };
 
   return sendAlertEmail(email);
