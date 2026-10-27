@@ -54,6 +54,7 @@ export interface IStore {
   // Documents
   saveDocument(doc: DocumentMetadata): Promise<DocumentMetadata>;
   getDocuments(applicationId: string): Promise<DocumentMetadata[]>;
+  getAllDocumentHashesExcept(institutionName: string): Promise<Set<string>>;
 
   // Compliance
   saveComplianceDocument(doc: ComplianceDocument): Promise<ComplianceDocument>;

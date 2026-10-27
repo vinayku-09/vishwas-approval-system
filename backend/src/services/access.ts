@@ -34,3 +34,7 @@ export function canReadApplication(
 
   return hasRegionAccess(user, application.region);
 }
+
+export function isBureauOrAbove(user: AuthTokenPayload): boolean {
+  return user.role === 'CHIEF';
+}

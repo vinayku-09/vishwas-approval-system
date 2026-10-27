@@ -22,18 +22,22 @@ export function getJwtSecret(): Uint8Array {
  */
 export async function signJwt(payload: {
   sub: string;
+  id?: string;
   role: UserRole;
   name: string;
   email: string;
+  phone?: string;
   institutionName?: string;
   inspectorId?: string;
   region?: Region;
 }): Promise<string> {
   const secret = getJwtSecret();
   return new SignJWT({
+    id: payload.id || payload.sub,
     role: payload.role,
     name: payload.name,
     email: payload.email,
+    phone: payload.phone,
     institutionName: payload.institutionName,
     inspectorId: payload.inspectorId,
     region: payload.region,
@@ -53,9 +57,11 @@ export async function verifyJwt(token: string): Promise<AuthTokenPayload> {
   const { payload } = await jwtVerify(token, secret);
   return {
     sub: payload.sub as string,
+    id: (payload.id as string) || (payload.sub as string),
     role: payload.role as UserRole,
     name: payload.name as string,
     email: payload.email as string,
+    phone: payload.phone as string | undefined,
     institutionName: payload.institutionName as string | undefined,
     inspectorId: payload.inspectorId as string | undefined,
     region: payload.region as Region | undefined,

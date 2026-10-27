@@ -158,9 +158,10 @@ proposalsRouter.get('/', authMiddleware, async (c) => {
 
   let proposals: CourseProposal[] = [];
 
-  if (user.role === 'CHIEF' || user.role === 'chief') {
+  const role = String(user.role).toUpperCase();
+  if (role === 'CHIEF') {
     proposals = await store.listCourseProposals({ status: statusParam });
-  } else if (user.role === 'OFFICER' || user.role === 'officer' || user.role === 'COMMITTEE' || user.role === 'committee') {
+  } else if (role === 'OFFICER' || role === 'COMMITTEE') {
     if (user.region && user.region !== 'ALL') {
       proposals = await store.listCourseProposals({ region: user.region, status: statusParam });
     } else {
@@ -191,6 +192,7 @@ proposalsRouter.get('/', authMiddleware, async (c) => {
 proposalsRouter.get('/:id', authMiddleware, async (c) => {
   const user = c.get('user');
   const id = c.req.param('id');
+  if (!id) return c.json({ error: 'Proposal ID is required' }, 400);
 
   const proposal = await store.getCourseProposal(id);
   if (!proposal) {
@@ -215,6 +217,7 @@ proposalsRouter.get('/:id', authMiddleware, async (c) => {
 proposalsRouter.patch('/:id', authMiddleware, async (c) => {
   const user = c.get('user');
   const id = c.req.param('id');
+  if (!id) return c.json({ error: 'Proposal ID is required' }, 400);
 
   const proposal = await store.getCourseProposal(id);
   if (!proposal) {
@@ -267,6 +270,7 @@ proposalsRouter.patch('/:id', authMiddleware, async (c) => {
 proposalsRouter.post('/:id/submit', authMiddleware, async (c) => {
   const user = c.get('user');
   const id = c.req.param('id');
+  if (!id) return c.json({ error: 'Proposal ID is required' }, 400);
 
   const proposal = await store.getCourseProposal(id);
   if (!proposal) {
@@ -331,6 +335,7 @@ proposalsRouter.post('/:id/submit', authMiddleware, async (c) => {
 proposalsRouter.post('/:id/determination', authMiddleware, requireRole(['OFFICER', 'CHIEF', 'officer', 'chief']), async (c) => {
   const user = c.get('user');
   const id = c.req.param('id');
+  if (!id) return c.json({ error: 'Proposal ID is required' }, 400);
 
   const proposal = await store.getCourseProposal(id);
   if (!proposal) {
@@ -338,7 +343,7 @@ proposalsRouter.post('/:id/determination', authMiddleware, requireRole(['OFFICER
   }
 
   // Scoping check for regional officers
-  if (user.role === 'OFFICER' || user.role === 'officer') {
+  if (String(user.role).toUpperCase() === 'OFFICER') {
     if (user.region && user.region !== 'ALL' && proposal.region !== 'ALL' && proposal.region !== user.region) {
       return c.json({
         error: `Access denied: Regional officer (${user.region}) cannot determine proposal from ${proposal.region} region.`,

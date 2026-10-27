@@ -15,6 +15,7 @@ import {
   BranchCheckSummary,
   BranchCheckRule,
   ComplianceDocument,
+  DocumentType,
 } from '../types.js';
 import { COURSE_NORMS, getFacultyRatioNorm } from '../config/courseNorms.js';
 import { computeExpiryState } from './expiry.js';
@@ -244,10 +245,11 @@ export function checkProposedBranch(
     docsToCheck.push({
       id: 'NOC-DOC',
       applicationId: '',
-      docType: 'AFFILIATION_NOC',
+      docType: 'AFFILIATION_NOC' as unknown as DocumentType,
       expiryDate: context.nocExpiryDate,
       daysRemaining: 0,
       state: 'VALID',
+      lastCheckedAt: new Date().toISOString(),
     });
   }
 

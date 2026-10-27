@@ -31,8 +31,18 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
     a = math.sin(delta_phi / 2.0) ** 2 + \
         math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2.0) ** 2
+    a = min(1.0, max(0.0, a))
     c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
     return r * c
+
+
+def format_hour_time(h: float) -> str:
+    hours = int(h)
+    minutes = int(round((h % 1) * 60))
+    if minutes >= 60:
+        hours += 1
+        minutes = 0
+    return f"{hours:02d}:{minutes:02d}"
 
 
 def road_distance_km(lat1: float, lon1: float, lat2: float, lon2: float, factor: float = 1.3) -> float:
@@ -233,8 +243,8 @@ def solve_evc_scheduling(request: OptimizeRequest) -> Dict[str, Any]:
         # Assign stop 1
         arr_h1 = 9.0 + (inspector_routes[k1]["usedHours"] or 0.0) + t1
         dep_h1 = arr_h1 + duration
-        arr_str1 = f"{int(arr_h1):02d}:{int((arr_h1 % 1) * 60):02d}"
-        dep_str1 = f"{int(dep_h1):02d}:{int((dep_h1 % 1) * 60):02d}"
+        arr_str1 = format_hour_time(arr_h1)
+        dep_str1 = format_hour_time(dep_h1)
 
         inspector_routes[k1]["stops"].append({
             "applicationId": inst.id,
@@ -251,8 +261,8 @@ def solve_evc_scheduling(request: OptimizeRequest) -> Dict[str, Any]:
         # Assign stop 2
         arr_h2 = 9.0 + (inspector_routes[k2]["usedHours"] or 0.0) + t2
         dep_h2 = arr_h2 + duration
-        arr_str2 = f"{int(arr_h2):02d}:{int((arr_h2 % 1) * 60):02d}"
-        dep_str2 = f"{int(dep_h2):02d}:{int((dep_h2 % 1) * 60):02d}"
+        arr_str2 = format_hour_time(arr_h2)
+        dep_str2 = format_hour_time(dep_h2)
 
         inspector_routes[k2]["stops"].append({
             "applicationId": inst.id,
@@ -337,7 +347,9 @@ if HAS_FASTAPI:
         allow_headers=["*"],
     )
 
+    @app.get("/")
     @app.get("/health")
+    @app.get("/api/health")
     def health():
         return {
             "status": "ok",
@@ -345,6 +357,8 @@ if HAS_FASTAPI:
             "has_ortools": HAS_ORTOOLS
         }
 
+    @app.post("/")
+    @app.post("/optimize")
     @app.post("/api/optimize")
     def optimize_endpoint(payload: OptimizeRequest):
         return solve_evc_scheduling(payload)
@@ -354,3 +368,10 @@ else:
     def app(environ, start_response):
         start_response("200 OK", [("Content-Type", "application/json")])
         return [b'{"status": "ok", "service": "optimizer"}']
+
+if __name__ == "__main__":
+    try:
+        import uvicorn
+        uvicorn.run(app, host="0.0.0.0", port=8000)
+    except ImportError:
+        print("[Optimizer] uvicorn not installed. Run 'pip install uvicorn' to run directly.")

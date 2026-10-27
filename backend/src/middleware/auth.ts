@@ -54,6 +54,7 @@ function demoUserFromHeaders(c: Context): AuthTokenPayload | null {
   const normRole = normalizeRole(roleHeader);
   return {
     sub: `DEMO-${normRole}`,
+    id: `DEMO-${normRole}`,
     role: normRole,
     name: `Demo ${normRole}`,
     email: `demo.${normRole.toLowerCase()}@aicte.gov.in`,

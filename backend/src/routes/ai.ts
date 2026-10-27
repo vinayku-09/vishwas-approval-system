@@ -49,7 +49,7 @@ aiRouter.post('/test-key', async (c) => {
     });
 
     if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
+      const errData = (await res.json().catch(() => ({}))) as any;
       const msg = errData?.error?.message || `HTTP ${res.status}: Invalid API Key or Unauthorized`;
       return c.json({ valid: false, error: msg }, 400);
     }
@@ -113,12 +113,12 @@ aiRouter.post('/scrutiny', async (c) => {
         });
 
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
+          const errData = (await res.json().catch(() => ({}))) as any;
           lastError = errData?.error?.message || `Model ${model} returned HTTP ${res.status}`;
           continue;
         }
 
-        const resData = await res.json();
+        const resData = (await res.json()) as any;
         const rawText = resData?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!rawText) {
           lastError = `Model ${model} produced empty response.`;

@@ -92,7 +92,7 @@ export interface ComplianceDocument {
   state: ExpiryState;
   tier?: WarningTier;
   daysRemaining: number;
-  lastCheckedAt: string;
+  lastCheckedAt?: string;
   // Optional due date for a pending authenticity/verification check (Phase C).
   authenticityDueAt?: string; // YYYY-MM-DD
   // Part 4: Renewal tracking
@@ -150,9 +150,9 @@ export interface UndertakingVerification {
 export interface Notification {
   id: string;
   applicationId: string;
-  title: string;
+  title?: string;
   message: string;
-  type: 'WARNING' | 'OVERDUE' | 'INFO';
+  type: 'WARNING' | 'OVERDUE' | 'INFO' | 'PENDENCY';
   read: boolean;
   createdAt: string;
   idempotencyKey: string;
@@ -440,9 +440,11 @@ export interface AuthUser {
 
 export interface AuthTokenPayload {
   sub: string;
+  id: string;
   role: UserRole;
   name: string;
   email: string;
+  phone?: string;
   institutionName?: string;
   inspectorId?: string;
   region?: Region;

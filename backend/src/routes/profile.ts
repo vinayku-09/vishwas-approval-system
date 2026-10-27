@@ -582,6 +582,7 @@ profileRouter.get('/officer/reviews', authMiddleware, requireRole(['OFFICER', 'C
 profileRouter.get('/officer/:id/risk', authMiddleware, requireRole(['OFFICER', 'CHIEF']), async (c) => {
   const user = c.get('user');
   const id = c.req.param('id');
+  if (!id) return c.json({ error: 'Profile ID is required' }, 400);
   const profile = await store.getProfile(id);
 
   if (!profile) {
@@ -630,6 +631,7 @@ const officerReviewSchema = z.object({
 profileRouter.post('/officer/:id/review', authMiddleware, requireRole(['OFFICER', 'CHIEF']), async (c) => {
   const user = c.get('user');
   const id = c.req.param('id');
+  if (!id) return c.json({ error: 'Profile ID is required' }, 400);
   const profile = await store.getProfile(id);
 
   if (!profile) {
