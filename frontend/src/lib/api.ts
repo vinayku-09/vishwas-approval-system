@@ -260,14 +260,32 @@ export async function login(
 }
 
 export const DEMO_ACCOUNTS: Record<
-  'officer' | 'committee' | 'chief',
+  'institution' | 'institution2' | 'officer' | 'officer_west' | 'committee' | 'chief',
   LoginRequest & { label: string; name: string }
 > = {
+  institution: {
+    email: 'delhi.tech@aicte.gov.in',
+    password: 'Password123!',
+    label: 'Technical Institution',
+    name: 'Delhi Institute of Advanced Technology & AI',
+  },
+  institution2: {
+    email: 'kaveri.poly@aicte.gov.in',
+    password: 'Password123!',
+    label: 'Polytechnic Campus',
+    name: 'Kaveri Polytechnic & Technical Campus',
+  },
   officer: {
     email: 'officer@aicte.gov.in',
     password: 'Password123!',
-    label: 'Scrutiny Officer',
+    label: 'Scrutiny Officer (Bureau)',
     name: 'Dr. Arvind Kumar',
+  },
+  officer_west: {
+    email: 'officer.west@aicte.gov.in',
+    password: 'Password123!',
+    label: 'Regional Officer (West)',
+    name: 'Dr. Kavita Deshmukh',
   },
   committee: {
     email: 'committee@aicte.gov.in',
@@ -284,10 +302,10 @@ export const DEMO_ACCOUNTS: Record<
 };
 
 export async function loginAsDemoRole(
-  role: Role
+  role: string
 ): Promise<{ data: LoginResponse | null; error?: string; status?: number }> {
-  const key = role.toLowerCase() as 'officer' | 'committee' | 'chief';
-  const account = DEMO_ACCOUNTS[key] || DEMO_ACCOUNTS.officer;
+  const key = role.toLowerCase() as keyof typeof DEMO_ACCOUNTS;
+  const account = DEMO_ACCOUNTS[key] || DEMO_ACCOUNTS.institution;
   return login({ email: account.email, password: account.password });
 }
 

@@ -370,7 +370,7 @@ export default function InstitutionPage() {
               className="px-4 py-2.5 rounded-lg border border-indigo-700 bg-indigo-50/70 text-indigo-900 hover:bg-indigo-100 font-semibold text-xs sm:text-sm flex items-center gap-2 shadow-sm transition-all"
             >
               <GraduationCap className="w-4 h-4 text-indigo-600" />
-              <span>Proposed Courses & Intake</span>
+              <span>Institute Approval</span>
             </Link>
             <button
               onClick={openNewModal}

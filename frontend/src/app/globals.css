@@ -3,6 +3,23 @@
 @tailwind utilities;
 
 :root {
+  --brand-600: #1D4ED8;
+  --brand-700: #1E40AF;
+  --brand-50: #EFF6FF;
+  --ink-900: #0B1220;
+  --ink-600: #475569;
+  --ink-400: #94A3B8;
+  --surface: #FFFFFF;
+  --canvas: #F8FAFC;
+  --line: #E2E8F0;
+  --success: #0B8A52;
+  --info: #1E35B5;
+  --teal: #0A6EA8;
+  --warning: #D97706;
+  --danger: #DC2626;
+  --accent: #E86A17;
+  
+  /* Keep old vars for backward compatibility */
   --gov-primary: #00284d;
   --gov-accent: #e86a17;
   --gov-surface: #ffffff;
@@ -10,15 +27,16 @@
 }
 
 body {
-  background-color: #f8fafc;
-  color: #0f172a;
+  background-color: var(--canvas);
+  color: var(--ink-900);
   min-height: 100vh;
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
 /* Accessible focus outlines */
 *:focus-visible {
-  outline: 2px solid #0b4a7d;
+  outline: 2px solid var(--brand-600);
   outline-offset: 2px;
 }
 
@@ -39,4 +57,14 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

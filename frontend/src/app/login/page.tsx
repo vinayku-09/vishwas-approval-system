@@ -29,7 +29,10 @@ import { AuthUser, UserRole } from '../../lib/types';
 type DemoRole = keyof typeof DEMO_ACCOUNTS;
 
 const ROLE_ICONS: Record<DemoRole, React.ComponentType<{ className?: string }>> = {
+  institution: Building2,
+  institution2: Building2,
   officer: ClipboardCheck,
+  officer_west: ClipboardCheck,
   committee: Users,
   chief: UserCheck,
 };
@@ -99,6 +102,28 @@ export default function LoginPage() {
     goAfterLogin(result.data.user);
   };
 
+  const handleEmailChange = (val: string) => {
+    setEmail(val);
+    const lower = val.toLowerCase().trim();
+    if (lower.includes('officer')) {
+      setRole('OFFICER');
+    } else if (lower.includes('committee')) {
+      setRole('COMMITTEE');
+    } else if (lower.includes('chief')) {
+      setRole('CHIEF');
+    } else if (
+      lower.includes('delhi') ||
+      lower.includes('kaveri') ||
+      lower.includes('vjti') ||
+      lower.includes('inst') ||
+      lower.includes('poly') ||
+      lower.includes('college') ||
+      lower.includes('tech')
+    ) {
+      setRole('INSTITUTION');
+    }
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!email.trim() || !password) {
@@ -110,7 +135,14 @@ export default function LoginPage() {
 
   const handleDemoLogin = async (demoKey: DemoRole) => {
     const account = DEMO_ACCOUNTS[demoKey];
-    const targetRole = demoKey.toUpperCase() as UserRole;
+    const targetRole: UserRole =
+      demoKey === 'institution' || demoKey === 'institution2'
+        ? 'INSTITUTION'
+        : demoKey === 'officer' || demoKey === 'officer_west'
+        ? 'OFFICER'
+        : demoKey === 'committee'
+        ? 'COMMITTEE'
+        : 'CHIEF';
     setEmail(account.email);
     setPassword(account.password);
     setRole(targetRole);
@@ -257,7 +289,7 @@ export default function LoginPage() {
                   type="email"
                   autoComplete="email"
                   value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+                  onChange={(event) => handleEmailChange(event.target.value)}
                   placeholder="e.g. registrar@college.edu.in"
                   className="w-full rounded-lg border border-slate-300 pl-9 pr-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-gov-blue-700/30 focus:border-gov-blue-700"
                   required

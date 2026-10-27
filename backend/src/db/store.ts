@@ -809,6 +809,7 @@ export class InMemoryStore implements IStore {
         name: 'Dr. Arvind Kumar',
         role: 'OFFICER',
         region: 'ALL',
+        emailVerified: true,
       },
       {
         id: 'USR-OFFICER-WEST',
@@ -817,6 +818,7 @@ export class InMemoryStore implements IStore {
         name: 'Dr. Kavita Deshmukh',
         role: 'OFFICER',
         region: 'WEST',
+        emailVerified: true,
       },
       {
         id: 'USR-COMMITTEE-01',
@@ -826,6 +828,7 @@ export class InMemoryStore implements IStore {
         role: 'COMMITTEE',
         inspectorId: 'INS-002', // Matches seeded assignment INSP-APP-2024-003
         region: 'WEST',
+        emailVerified: true,
       },
       {
         id: 'USR-CHIEF-01',
@@ -834,6 +837,7 @@ export class InMemoryStore implements IStore {
         name: 'Prof. Anil Sahasrabudhe',
         role: 'CHIEF',
         region: 'ALL',
+        emailVerified: true,
       },
       {
         id: 'USR-INST-01',
@@ -842,6 +846,7 @@ export class InMemoryStore implements IStore {
         name: 'Delhi Institute Director',
         role: 'INSTITUTION',
         institutionName: 'Delhi Institute of Advanced Technology & AI',
+        emailVerified: true,
       },
       {
         id: 'USR-INST-02',
@@ -850,6 +855,7 @@ export class InMemoryStore implements IStore {
         name: 'Kaveri Polytechnic Principal',
         role: 'INSTITUTION',
         institutionName: 'Kaveri Polytechnic & Technical Campus',
+        emailVerified: true,
       },
       {
         id: 'USR-INST-03',
@@ -858,6 +864,7 @@ export class InMemoryStore implements IStore {
         name: 'VJTI Mumbai Registrar',
         role: 'INSTITUTION',
         institutionName: 'Veermata Jijabai Technological Institute (VJTI)',
+        emailVerified: true,
       },
     ];
 
