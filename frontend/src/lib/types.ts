@@ -898,4 +898,27 @@ export interface CourseProposal {
   submittedAt?: string;
 }
 
+export type StorageMode = 'local' | 'postgres' | 'blob';
 
+export interface StoredFileRecord {
+  id: string;
+  pathname: string;
+  sha256: string;
+  size: number;
+  contentType: string;
+  institutionId: string;
+  region: string;
+  isDraft: boolean;
+  uploadedAt: string;
+  storageMode: StorageMode;
+  metadata?: Record<string, unknown>;
+}
+
+/** Returned by POST /files on a successful server-side upload */
+export interface UploadedFileResult {
+  id: string;
+  sha256: string;
+  size: number;
+  pathname: string;
+  storageMode: StorageMode;
+}

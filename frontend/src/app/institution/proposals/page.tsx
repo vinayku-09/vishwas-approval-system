@@ -31,6 +31,7 @@ import {
   getInstitutionProfile,
   getStoredUser,
 } from '../../../lib/api';
+import FileUploadWidget from '../../../components/FileUploadWidget';
 import {
   CourseProposal,
   ProposedBranch,
@@ -39,6 +40,7 @@ import {
   BranchRuleResult,
   BranchCheckSummary,
   InstitutionProfile,
+  UploadedFileResult,
 } from '../../../lib/types';
 
 const PROPOSAL_TYPES: { id: ProposalType; label: string; desc: string }[] = [
@@ -92,6 +94,10 @@ export default function InstitutionProposalsPage() {
       affiliationNocAvailable: true,
     },
   ]);
+
+  // Track uploaded file IDs per branch (NOC PDFs) and proposal-level docs
+  const [branchNocFileIds, setBranchNocFileIds] = useState<Record<string, string>>({});
+  const [proposalDocFileIds, setProposalDocFileIds] = useState<string[]>([]);
 
   // Load Institution Profile and Proposals
   useEffect(() => {
@@ -929,8 +935,68 @@ export default function InstitutionProposalsPage() {
                       <span>Affiliation NOC Declared</span>
                     </label>
                   </div>
+
+                  {/* NOC PDF Upload for this branch */}
+                  <div className="pt-3 border-t border-slate-800/60">
+                    <FileUploadWidget
+                      label="Affiliation NOC (PDF)"
+                      hint="Upload the university/board NOC PDF for this course"
+                      kind="affiliation-noc"
+                      isDraft={proposalStatus === 'DRAFT'}
+                      disabled={proposalStatus !== 'DRAFT'}
+                      initialFileId={branchNocFileIds[branch.id]}
+                      onUploaded={(result: UploadedFileResult) => {
+                        setBranchNocFileIds((prev) => ({ ...prev, [branch.id]: result.id }));
+                        handleBranchChange(idx, 'affiliationNocAvailable', true);
+                      }}
+                      onDeleted={() => {
+                        setBranchNocFileIds((prev) => {
+                          const next = { ...prev };
+                          delete next[branch.id];
+                          return next;
+                        });
+                      }}
+                    />
+                  </div>
                 </div>
               ))}
+            </div>
+
+            {/* Proposal-Level Supporting Documents */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-lg">
+              <h2 className="text-sm font-semibold text-slate-200 flex items-center space-x-2">
+                <FileCheck className="w-4 h-4 text-indigo-400" />
+                <span>Supporting Documents</span>
+              </h2>
+              <p className="text-xs text-slate-400">
+                Upload additional supporting PDFs for this proposal (e.g. building plan, site inspection report, FDR).
+                Files are stored securely and only accessible to authorized AICTE officers.
+              </p>
+              <div className="space-y-3">
+                <FileUploadWidget
+                  label="Building Plan / Site Map"
+                  kind="building-plan"
+                  isDraft={proposalStatus === 'DRAFT'}
+                  disabled={proposalStatus !== 'DRAFT'}
+                  onUploaded={(result: UploadedFileResult) =>
+                    setProposalDocFileIds((prev) => [...prev.filter((id) => id !== result.id), result.id])
+                  }
+                />
+                <FileUploadWidget
+                  label="FDR / Security Deposit"
+                  kind="fdr-deposit"
+                  isDraft={proposalStatus === 'DRAFT'}
+                  disabled={proposalStatus !== 'DRAFT'}
+                  onUploaded={(result: UploadedFileResult) =>
+                    setProposalDocFileIds((prev) => [...prev.filter((id) => id !== result.id), result.id])
+                  }
+                />
+              </div>
+              {proposalDocFileIds.length > 0 && (
+                <p className="text-[11px] text-emerald-400/80">
+                  ✓ {proposalDocFileIds.length} document(s) uploaded for this proposal
+                </p>
+              )}
             </div>
           </div>
 

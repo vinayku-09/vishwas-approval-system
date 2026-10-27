@@ -1949,6 +1949,132 @@ export async function determineProposal(
   return { data: null, isDemo: true, error: res.error };
 }
 
+// ── File Storage API ────────────────────────────────────────────────────────
 
+import type { UploadedFileResult } from './types';
 
+/**
+ * Upload a PDF to the backend /files endpoint.
+ * Returns the stored file record (id, sha256, size, pathname, storageMode).
+ *
+ * @param file     The File object from an <input type="file">
+ * @param kind     Logical category (e.g. 'document', 'evidence', 'profile')
+ * @param isDraft  Whether this is a draft upload (can be deleted later)
+ */
+export async function uploadFile(
+  file: File,
+  kind = 'document',
+  isDraft = true
+): Promise<{ data: UploadedFileResult | null; error?: string }> {
+  const token = getStoredToken();
+  const role = getStoredRole();
 
+  const form = new FormData();
+  form.append('file', file);
+  form.append('kind', kind);
+  form.append('isDraft', isDraft ? 'true' : 'false');
+
+  const headers = new Headers();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  } else {
+    headers.set('x-role', role);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000); // 30s for uploads
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/files`, {
+      method: 'POST',
+      headers,
+      body: form,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      return { data: null, error: (body as { error?: string }).error ?? `Upload failed (${res.status})` };
+    }
+
+    const data = await res.json() as UploadedFileResult;
+    return { data };
+  } catch (err: unknown) {
+    clearTimeout(timeout);
+    const msg = err instanceof Error ? err.message : String(err);
+    return { data: null, error: `Upload failed: ${msg}` };
+  }
+}
+
+/**
+ * Returns the URL to stream a stored file through the authenticated backend.
+ * This URL is NOT publicly accessible — callers must set Authorization header.
+ * Use downloadFileBlob() to fetch and show/download the file in the browser.
+ */
+export function fileDownloadUrl(fileId: string): string {
+  return `${API_BASE_URL}/files/${fileId}`;
+}
+
+/**
+ * Fetches a stored file as a Blob and triggers a browser download.
+ * Re-verifies that the response content-type is application/pdf.
+ */
+export async function downloadFileBlob(
+  fileId: string,
+  filename = 'document.pdf'
+): Promise<{ error?: string }> {
+  const token = getStoredToken();
+  const role = getStoredRole();
+
+  const headers = new Headers();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  } else {
+    headers.set('x-role', role);
+  }
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/files/${fileId}`, { headers });
+
+    if (res.status === 409) {
+      return { error: 'File integrity check failed. The stored file may be corrupted.' };
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      return { error: (body as { error?: string }).error ?? `Download failed (${res.status})` };
+    }
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    setTimeout(() => {
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+    }, 500);
+
+    return {};
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { error: `Download failed: ${msg}` };
+  }
+}
+
+/**
+ * Delete a stored file by ID. Only DRAFT files can be deleted.
+ * Returns 409 if the file is no longer a draft.
+ */
+export async function deleteStoredFile(
+  fileId: string
+): Promise<{ error?: string }> {
+  const res = await request<{ message: string; id: string }>(`/files/${fileId}`, {
+    method: 'DELETE',
+  });
+  if (res.error) return { error: res.error };
+  return {};
+}

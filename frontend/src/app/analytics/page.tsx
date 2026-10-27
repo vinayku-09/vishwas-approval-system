@@ -28,7 +28,7 @@ import {
   IrregularityAnalyticsResponse,
   IrregularityRegionStat,
 } from '../../lib/api';
-import { Region, Status } from '../../lib/types';
+import { Region, Status, AuthUser, Role } from '../../lib/types';
 import { StatusBadge } from '../../components/StatusBadge';
 import { formatDate } from '../../lib/utils';
 
