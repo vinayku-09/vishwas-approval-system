@@ -106,7 +106,6 @@ export default function InstitutionProposalsPage() {
       setLoading(true);
       setError(null);
       try {
-        const user = getStoredUser();
         // Load profile to reuse land area
         const profRes = await getInstitutionProfile();
         if (profRes.data) {
@@ -115,7 +114,8 @@ export default function InstitutionProposalsPage() {
           setLandAreaSqm(area);
         }
 
-        // Load existing proposals
+        // Load existing proposals — silently fall through if the table isn't
+        // migrated yet or the backend is temporarily unreachable.
         const propsRes = await getProposals();
         if (propsRes.data && propsRes.data.length > 0) {
           setExistingProposals(propsRes.data);
@@ -131,7 +131,9 @@ export default function InstitutionProposalsPage() {
           }
         }
       } catch (err: any) {
-        setError(err.message || 'Failed to initialize proposals');
+        // Only log — don't surface DB/network boot errors to the user.
+        // The form is still fully usable with a fresh draft.
+        console.warn('[proposals] Failed to load existing proposals:', err?.message);
       } finally {
         setLoading(false);
       }
