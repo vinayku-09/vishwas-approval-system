@@ -23,6 +23,8 @@ import {
   HelpCircle,
   FileCode,
   GraduationCap,
+  MapPin,
+  BadgeCheck,
 } from 'lucide-react';
 import {
   Application,
@@ -96,6 +98,17 @@ export default function InstitutionPage() {
     leaseEndDate: '2045-12-31',
     fireNocExpiry: '2028-06-30',
   });
+
+  // Bhulekh Land Verification State
+  const [showBhulekhPanel, setShowBhulekhPanel] = useState(true);
+  const [bhulekhDistrict, setBhulekhDistrict] = useState('');
+  const [bhulekhTaluka, setBhulekhTaluka] = useState('');
+  const [bhulekhVillage, setBhulekhVillage] = useState('');
+  const [bhulekhSurveyNo, setBhulekhSurveyNo] = useState('');
+  const [bhulekhGatNo, setBhulekhGatNo] = useState('');
+  const [bhulekhAreaHectare, setBhulekhAreaHectare] = useState('');
+  const [bhulekhVerified, setBhulekhVerified] = useState(false);
+  const [bhulekhVerifiedAreaSqm, setBhulekhVerifiedAreaSqm] = useState<number>(0);
 
   // Institution Profile state
   const [profile, setProfile] = useState<InstitutionProfile | null>(null);
@@ -1413,6 +1426,153 @@ export default function InstitutionPage() {
                     className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-xs"
                   />
                 </div>
+              </div>
+
+              {/* Bhulekh Mahabhumi Land Verification */}
+              <div className="bg-white border-2 border-orange-200 rounded-xl p-4 shadow-sm space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-orange-600 flex items-center justify-center shrink-0">
+                      <span className="text-white text-[10px] font-black">MH</span>
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                        Maharashtra Bhulekh Land Verification
+                        {bhulekhVerified && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200 flex items-center gap-1">
+                            <BadgeCheck className="w-2.5 h-2.5" /> VERIFIED
+                          </span>
+                        )}
+                      </h3>
+                      <p className="text-[10px] text-slate-500">
+                        Verify campus land records via <a href="https://bhulekh.mahabhumi.gov.in/" target="_blank" rel="noopener noreferrer" className="text-orange-600 hover:underline font-semibold">bhulekh.mahabhumi.gov.in</a>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <a
+                      href="https://bhulekh.mahabhumi.gov.in/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 px-2.5 py-1 bg-orange-600 hover:bg-orange-700 text-white text-[10px] font-bold rounded-lg transition"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      Open Portal
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => setShowBhulekhPanel((v) => !v)}
+                      className="flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 text-[10px] font-semibold rounded-lg border border-slate-300 transition"
+                    >
+                      <MapPin className="w-3 h-3 text-orange-500" />
+                      {showBhulekhPanel ? 'Hide' : 'Enter Details'}
+                    </button>
+                  </div>
+                </div>
+
+                {bhulekhVerified && (
+                  <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                    <BadgeCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <div className="text-[10px] text-emerald-800 flex-1">
+                      <span className="font-bold">{bhulekhVillage}, {bhulekhTaluka}, {bhulekhDistrict}</span> • Survey {bhulekhSurveyNo}
+                      {bhulekhGatNo && ` / Gat ${bhulekhGatNo}`} • <strong>{bhulekhVerifiedAreaSqm.toLocaleString()} sq.m</strong>
+                      {bhulekhVerifiedAreaSqm >= 4047 ? ' ✓ Meets norm' : ' ✗ Below 4,047 sq.m'}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { setBhulekhVerified(false); setShowBhulekhPanel(true); }}
+                      className="text-[9px] text-emerald-600 hover:text-emerald-800 underline font-semibold"
+                    >
+                      Edit
+                    </button>
+                  </div>
+                )}
+
+                {showBhulekhPanel && (
+                  <div className="border border-orange-100 rounded-lg bg-orange-50/30 p-3 space-y-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      <div className="flex flex-col gap-0.5">
+                        <label className="text-[9px] font-semibold text-slate-700 uppercase">District *</label>
+                        <select
+                          value={bhulekhDistrict}
+                          onChange={(e) => setBhulekhDistrict(e.target.value)}
+                          className="w-full text-[10px] border border-slate-300 rounded px-2 py-1.5 bg-white"
+                        >
+                          <option value="">Select</option>
+                          {['Ahmednagar','Akola','Amravati','Aurangabad','Beed','Bhandara','Buldhana','Chandrapur','Dhule','Gadchiroli','Gondia','Hingoli','Jalgaon','Jalna','Kolhapur','Latur','Mumbai City','Mumbai Suburban','Nagpur','Nanded','Nandurbar','Nashik','Osmanabad','Palghar','Parbhani','Pune','Raigad','Ratnagiri','Sangli','Satara','Sindhudurg','Solapur','Thane','Wardha','Washim','Yavatmal'].map(d => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <label className="text-[9px] font-semibold text-slate-700 uppercase">Taluka *</label>
+                        <input
+                          value={bhulekhTaluka}
+                          onChange={(e) => setBhulekhTaluka(e.target.value)}
+                          className="w-full text-[10px] border border-slate-300 rounded px-2 py-1.5"
+                          placeholder="e.g. Haveli"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <label className="text-[9px] font-semibold text-slate-700 uppercase">Village *</label>
+                        <input
+                          value={bhulekhVillage}
+                          onChange={(e) => setBhulekhVillage(e.target.value)}
+                          className="w-full text-[10px] border border-slate-300 rounded px-2 py-1.5"
+                          placeholder="Village name"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <label className="text-[9px] font-semibold text-slate-700 uppercase">Survey No. *</label>
+                        <input
+                          value={bhulekhSurveyNo}
+                          onChange={(e) => setBhulekhSurveyNo(e.target.value)}
+                          className="w-full text-[10px] border border-slate-300 rounded px-2 py-1.5"
+                          placeholder="e.g. 123/1"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <label className="text-[9px] font-semibold text-slate-700 uppercase">Gat No. (Optional)</label>
+                        <input
+                          value={bhulekhGatNo}
+                          onChange={(e) => setBhulekhGatNo(e.target.value)}
+                          className="w-full text-[10px] border border-slate-300 rounded px-2 py-1.5"
+                          placeholder="Gat No."
+                        />
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <label className="text-[9px] font-semibold text-slate-700 uppercase">Area (Hectare) *</label>
+                        <input
+                          type="number"
+                          step="0.0001"
+                          value={bhulekhAreaHectare}
+                          onChange={(e) => setBhulekhAreaHectare(e.target.value)}
+                          className="w-full text-[10px] border border-slate-300 rounded px-2 py-1.5"
+                          placeholder="e.g. 0.75"
+                        />
+                      </div>
+                    </div>
+                    {bhulekhAreaHectare && !isNaN(parseFloat(bhulekhAreaHectare)) && (
+                      <div className={`text-[9px] font-semibold ${parseFloat(bhulekhAreaHectare) * 10000 >= 4047 ? 'text-emerald-600' : 'text-red-500'}`}>
+                        = {(parseFloat(bhulekhAreaHectare) * 10000).toLocaleString()} sq.m {parseFloat(bhulekhAreaHectare) * 10000 >= 4047 ? '✓ Meets 4,047 sq.m norm' : '✗ Below 4,047 sq.m minimum'}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      disabled={!bhulekhDistrict || !bhulekhTaluka || !bhulekhVillage || !bhulekhSurveyNo || !bhulekhAreaHectare}
+                      onClick={() => {
+                        const areaSqm = parseFloat(bhulekhAreaHectare) * 10000;
+                        if (!isNaN(areaSqm) && areaSqm > 0) {
+                          setBhulekhVerifiedAreaSqm(areaSqm);
+                          setFormData(prev => ({ ...prev, landAreaSqm: Math.round(areaSqm) }));
+                          setBhulekhVerified(true);
+                          setShowBhulekhPanel(false);
+                        }
+                      }}
+                      className="w-full px-3 py-1.5 bg-orange-600 hover:bg-orange-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-[10px] font-bold rounded-lg transition"
+                    >
+                      Confirm & Verify Land Details
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="pt-4 flex items-center justify-end gap-2 border-t border-slate-200">
