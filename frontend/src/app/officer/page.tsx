@@ -28,7 +28,9 @@ import {
   FileText,
   Building2,
   GraduationCap,
+  Key,
 } from 'lucide-react';
+import AiOfficerScrutinyAssistant from '../../components/AiOfficerScrutinyAssistant';
 import {
   Application,
   ApplicationType,
@@ -1804,6 +1806,19 @@ export default function OfficerPage() {
             })}
           </div>
 
+          {/* AI Officer Scrutiny & Fault Analysis Assistant */}
+          <AiOfficerScrutinyAssistant
+            type="COURSE_PROPOSAL"
+            data={inspectProposal}
+            onApplyRemarks={(remarks, recDecision) => {
+              setDeterminationRemarks(remarks);
+              if (recDecision) {
+                setDeterminationDecision(recDecision);
+              }
+              showToast('✓ AI Scrutiny remarks and determination applied to form!', 'success');
+            }}
+          />
+
           {/* Officer Determination Form */}
           <div className="p-5 rounded-xl border border-slate-200 bg-slate-50 space-y-4">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center space-x-1.5">
@@ -1960,6 +1975,21 @@ export default function OfficerPage() {
               </div>
 
               <SafeguardNotice compact />
+
+              {/* AI Officer Scrutiny & Fault Analysis Assistant */}
+              <AiOfficerScrutinyAssistant
+                type="APPLICATION"
+                data={reviewApp}
+                onApplyRemarks={(remarks, recDecision) => {
+                  setSignoffRemarks(remarks);
+                  if (recDecision === 'NO_CONCERN') {
+                    setSignoffModalDecision('OVERRIDE');
+                  } else {
+                    setSignoffModalDecision('CONFIRM');
+                  }
+                  showToast('✓ AI Scrutiny remarks applied to sign-off form!', 'success');
+                }}
+              />
 
               {/* Sign-Off Action Controls */}
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">

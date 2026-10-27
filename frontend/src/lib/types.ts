@@ -922,3 +922,15 @@ export interface UploadedFileResult {
   pathname: string;
   storageMode: StorageMode;
 }
+
+export interface AiScrutinyAnalysis {
+  summary: string;
+  riskLevel: 'HIGH' | 'MEDIUM' | 'LOW';
+  faults: string[];
+  whatIsWrong: string[];
+  suggestedChanges: string[];
+  recommendedDecision: 'NO_CONCERN' | 'ASK_CLARIFICATION' | 'REFER';
+  draftOfficerRemarks: string;
+  statutoryCitations?: string[];
+}
+

@@ -53,6 +53,7 @@ import {
   ProposalStatus,
   ProposedBranch,
   ProposalDetermination,
+  AiScrutinyAnalysis,
 } from './types';
 import {
   INITIAL_MOCK_APPLICATIONS,
@@ -2096,3 +2097,80 @@ export async function deleteStoredFile(
   if (res.error) return { error: res.error };
   return {};
 }
+
+const GEMINI_KEY_STORAGE = 'aicte_officer_gemini_key';
+
+export function getStoredGeminiApiKey(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(GEMINI_KEY_STORAGE)?.trim() || null;
+}
+
+export function setStoredGeminiApiKey(key: string): void {
+  if (typeof window === 'undefined') return;
+  const clean = key.trim();
+  if (clean) {
+    localStorage.setItem(GEMINI_KEY_STORAGE, clean);
+  } else {
+    localStorage.removeItem(GEMINI_KEY_STORAGE);
+  }
+}
+
+export function removeStoredGeminiApiKey(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(GEMINI_KEY_STORAGE);
+}
+
+export async function testGeminiApiKey(
+  apiKey: string
+): Promise<{ valid: boolean; message?: string; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/ai/test-key`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.valid) {
+      return { valid: false, error: data.error || `Validation failed (HTTP ${res.status})` };
+    }
+    return { valid: true, message: data.message || 'Key verified!' };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { valid: false, error: msg };
+  }
+}
+
+export async function runAiScrutiny(params: {
+  type: 'APPLICATION' | 'COURSE_PROPOSAL';
+  data: any;
+  apiKey?: string;
+}): Promise<{ data: AiScrutinyAnalysis | null; error?: string }> {
+  try {
+    const key = params.apiKey || getStoredGeminiApiKey() || undefined;
+    const res = await fetch(`${API_BASE_URL}/ai/scrutiny`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(key ? { 'x-gemini-key': key } : {}),
+      },
+      body: JSON.stringify({
+        type: params.type,
+        data: params.data,
+        apiKey: key,
+      }),
+    });
+
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || !body.analysis) {
+      return {
+        data: null,
+        error: body.error || `Scrutiny analysis failed (HTTP ${res.status})`,
+      };
+    }
+    return { data: body.analysis as AiScrutinyAnalysis };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { data: null, error: `AI Scrutiny request failed: ${msg}` };
+  }
+}
+

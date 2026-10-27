@@ -16,6 +16,7 @@ import { configRouter } from './routes/config.js';
 import { profileRouter } from './routes/profile.js';
 import { proposalsRouter } from './routes/proposals.js';
 import { filesRouter } from './routes/files.js';
+import { aiRouter } from './routes/ai.js';
 import { getMailHealth } from './services/mailer.js';
 import { initializeStore } from './db/index.js';
 
@@ -69,6 +70,7 @@ app.route('/institution/profile', profileRouter);
 app.route('/', profileRouter);
 app.route('/proposals', proposalsRouter);
 app.route('/files', filesRouter);
+app.route('/ai', aiRouter);
 
 // Global 404 handler
 app.notFound((c) => {
