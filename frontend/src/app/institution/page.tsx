@@ -40,7 +40,6 @@ import {
   createApplication,
   uploadDocument,
   getDocuments,
-  runExtract,
   getCompliance,
   getUndertakings,
   uploadUndertakingEvidence,
@@ -68,7 +67,6 @@ export default function InstitutionPage() {
   const [appCompliance, setAppCompliance] = useState<ComplianceDocument[]>([]);
   const [appUndertakings, setAppUndertakings] = useState<Undertaking[]>([]);
   const [loadingDrawerData, setLoadingDrawerData] = useState(false);
-  const [extracting, setExtracting] = useState(false);
 
   // Return Reply state
   const [replyRemarks, setReplyRemarks] = useState('');
@@ -298,28 +296,6 @@ export default function InstitutionPage() {
       alert(`Renewal submission failed: ${msg}`);
     } finally {
       setRenewingDocId(null);
-    }
-  };
-
-  const handleRequestScrutiny = async () => {
-    if (!selectedApp) return;
-    setExtracting(true);
-
-    try {
-      const res = await runExtract(selectedApp.id);
-      if (res.data?.application) {
-        setSelectedApp(res.data.application);
-        // Refresh full applications list
-        await loadData();
-        // Refresh compliance
-        const compRes = await getCompliance(selectedApp.id);
-        setAppCompliance(compRes.data?.documents || []);
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      alert(`Scrutiny request error: ${msg}`);
-    } finally {
-      setExtracting(false);
     }
   };
 
@@ -784,17 +760,6 @@ export default function InstitutionPage() {
                       <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
                         Approval Lifecycle Progression
                       </h3>
-                      {['SUBMITTED', 'DEFICIENT'].includes(selectedApp.status) && (
-                        <button
-                          onClick={handleRequestScrutiny}
-                          disabled={extracting}
-                          type="button"
-                          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 disabled:opacity-50"
-                        >
-                          <Sparkles className="w-3.5 h-3.5" />
-                          <span>{extracting ? 'Running Scrutiny...' : 'Request AI Scrutiny'}</span>
-                        </button>
-                      )}
                     </div>
                     <div className="rounded-xl border border-slate-200 bg-white">
                       {selectedApp.route ? (
@@ -887,15 +852,8 @@ export default function InstitutionPage() {
                         </table>
                       </div>
                     ) : (
-                      <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-500 flex items-center justify-between">
-                        <span>No extraction results found yet for this application.</span>
-                        <button
-                          onClick={handleRequestScrutiny}
-                          disabled={extracting}
-                          className="px-3 py-1 bg-indigo-600 text-white rounded text-xs font-semibold"
-                        >
-                          Run Scrutiny Now
-                        </button>
+                      <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-500">
+                        No extraction results found yet. AI scrutiny is performed by the regional officer.
                       </div>
                     )}
                   </div>
