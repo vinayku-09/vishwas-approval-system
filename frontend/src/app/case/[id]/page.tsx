@@ -21,7 +21,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { CaseSummary } from '../../../lib/types';
-import { getCaseSummary, isAuthenticated } from '../../../lib/api';
+import { getCaseSummary, getStoredUser, dashboardHomePath, isAuthenticated } from '../../../lib/api';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { SlaBadge } from '../../../components/SlaBadge';
 import { RouteSequence } from '../../../components/RouteSequence';
@@ -92,15 +92,17 @@ export default function CaseSummaryPage() {
     );
   }
 
+  const backHref = dashboardHomePath(getStoredUser());
+
   if (!summary) {
     return (
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-4">
         <Link
-          href="/"
+          href={backHref}
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-gov-blue-800"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>Back to Home</span>
+          <span>Back to Dashboard</span>
         </Link>
         <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-red-900">
           <div className="flex items-center gap-2 font-bold text-sm">
@@ -120,11 +122,11 @@ export default function CaseSummaryPage() {
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-5">
       <div className="flex items-center justify-between gap-3">
         <Link
-          href="/"
+          href={backHref}
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-gov-blue-800"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>Back to Home</span>
+          <span>Back to Dashboard</span>
         </Link>
         <button
           onClick={loadData}
