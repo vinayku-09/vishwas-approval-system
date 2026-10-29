@@ -40,15 +40,6 @@ export default function RootLayout({
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <div className="flex items-center gap-2 px-2 py-1 rounded-lg border border-line bg-canvas">
-                    <div className="w-6 h-6 rounded-full bg-brand-600 text-white flex items-center justify-center text-[10px] font-semibold">
-                      VK
-                    </div>
-                    <div className="text-[11px]">
-                      <div className="font-medium text-ink-900">Team Vishwas</div>
-                      <div className="text-ink-400">SIH 2026</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 px-2 py-1 rounded-lg border border-line bg-canvas">
                     <div className="w-6 h-6 rounded-full bg-accent text-white flex items-center justify-center text-[10px] font-semibold">
                       AC
                     </div>

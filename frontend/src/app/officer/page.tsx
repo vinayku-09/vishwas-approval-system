@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   ClipboardCheck,
   Filter,
@@ -60,6 +61,7 @@ import {
   reviewOfficerProfile,
   getProposals,
   determineProposal,
+  isAuthenticated,
 } from '../../lib/api';
 import { StatusBadge } from '../../components/StatusBadge';
 import { SlaBadge } from '../../components/SlaBadge';
@@ -82,6 +84,8 @@ const NEXT_STATE_TRANSITIONS: Record<Status, Status[]> = {
 };
 
 export default function OfficerPage() {
+  const router = useRouter();
+  const [authorized, setAuthorized] = useState(false);
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -343,8 +347,16 @@ export default function OfficerPage() {
   };
 
   useEffect(() => {
-    loadData();
-  }, [statusFilter, typeFilter]);
+    if (!isAuthenticated()) {
+      router.replace('/login?next=/officer');
+      return;
+    }
+    setAuthorized(true);
+  }, [router]);
+
+  useEffect(() => {
+    if (authorized) loadData();
+  }, [authorized, statusFilter, typeFilter]);
 
   const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
     setToast({ message, type });
@@ -550,6 +562,14 @@ export default function OfficerPage() {
       setRejectSubmitting(false);
     }
   };
+
+  if (!authorized) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-sm text-slate-600">
+        Redirecting to sign in…
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">

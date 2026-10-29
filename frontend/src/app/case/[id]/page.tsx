@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -21,7 +21,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { CaseSummary } from '../../../lib/types';
-import { getCaseSummary } from '../../../lib/api';
+import { getCaseSummary, isAuthenticated } from '../../../lib/api';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { SlaBadge } from '../../../components/SlaBadge';
 import { RouteSequence } from '../../../components/RouteSequence';
@@ -32,7 +32,9 @@ import { formatDate, shortHash } from '../../../lib/utils';
 export default function CaseSummaryPage() {
   const params = useParams();
   const id = params?.id as string;
+  const router = useRouter();
 
+  const [authorized, setAuthorized] = useState(false);
   const [summary, setSummary] = useState<CaseSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -60,8 +62,24 @@ export default function CaseSummaryPage() {
   }, [id]);
 
   useEffect(() => {
-    void loadData();
-  }, [loadData]);
+    if (!isAuthenticated()) {
+      router.replace(`/login?next=${encodeURIComponent(`/case/${id ?? ''}`)}`);
+      return;
+    }
+    setAuthorized(true);
+  }, [router, id]);
+
+  useEffect(() => {
+    if (authorized) void loadData();
+  }, [authorized, loadData]);
+
+  if (!authorized) {
+    return (
+      <div className="max-w-6xl mx-auto px-4 py-8 text-sm text-slate-600">
+        Redirecting to sign in…
+      </div>
+    );
+  }
 
   if (loading) {
     return (

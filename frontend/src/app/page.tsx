@@ -13,12 +13,17 @@ import { NetworkCard } from '../components/ui/NetworkCard';
 import { DarkSection } from '../components/ui/DarkSection';
 import { TerminalCard } from '../components/ui/TerminalCard';
 import { BentoCard } from '../components/ui/BentoCard';
+import { clearSession } from '../lib/api';
 
 const rotatingTexts = ['region', 'officers', 'institutions'];
 
 export default function HomePage() {
   const [currentTextIndex, setCurrentTextIndex] = useState(0);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    clearSession();
+  }, []);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
