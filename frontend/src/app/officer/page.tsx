@@ -155,6 +155,7 @@ export default function OfficerPage() {
   } | null>(null);
   const [rejectRemarks, setRejectRemarks] = useState('');
   const [rejectSubmitting, setRejectSubmitting] = useState(false);
+  const [aiTargetAppId, setAiTargetAppId] = useState<string>('');
 
   const loadData = async () => {
     setLoading(true);
@@ -224,6 +225,16 @@ export default function OfficerPage() {
       loadProposals();
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (applications.length === 0) {
+      setAiTargetAppId('');
+      return;
+    }
+    setAiTargetAppId((prev) =>
+      prev && applications.some((app) => app.id === prev) ? prev : applications[0].id
+    );
+  }, [applications]);
 
   const handleRunOptimizer = async () => {
     setOptimizing(true);
@@ -563,6 +574,8 @@ export default function OfficerPage() {
     }
   };
 
+  const aiTargetApp = applications.find((app) => app.id === aiTargetAppId) || null;
+
   if (!authorized) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-sm text-slate-600">
@@ -708,6 +721,47 @@ export default function OfficerPage() {
 
       {activeTab === 'APPLICATIONS' && (
         <>
+          {/* AI Scrutiny Console */}
+          {aiTargetApp ? (
+            <div className="space-y-3">
+              <div className="bg-white p-4 rounded-xl border border-indigo-200 shadow-sm flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-indigo-700">
+                  <Sparkles className="w-4 h-4 text-indigo-600" />
+                  <span>AI Scrutiny Console</span>
+                </div>
+                <select
+                  value={aiTargetAppId}
+                  onChange={(e) => setAiTargetAppId(e.target.value)}
+                  className="px-2.5 py-1.5 rounded-lg border border-indigo-200 text-xs bg-indigo-50 font-medium text-slate-800 max-w-full"
+                >
+                  {applications.map((app) => (
+                    <option key={app.id} value={app.id}>
+                      {app.id} — {app.institutionName} ({app.status})
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[11px] text-slate-500">
+                  Select a case, then run the Gemini-powered statutory fault analysis below.
+                </span>
+              </div>
+              <AiOfficerScrutinyAssistant
+                key={aiTargetApp.id}
+                type="APPLICATION"
+                data={aiTargetApp}
+                onApplyRemarks={(remarks, recDecision) => {
+                  setReviewApp(aiTargetApp);
+                  setSignoffRemarks(remarks);
+                  setSignoffModalDecision(recDecision === 'NO_CONCERN' ? 'OVERRIDE' : 'CONFIRM');
+                  showToast('AI scrutiny remarks applied to the sign-off form.', 'success');
+                }}
+              />
+            </div>
+          ) : (
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm text-xs text-slate-500">
+              AI scrutiny becomes available once an application is present in the queue.
+            </div>
+          )}
+
           {/* Filters Bar */}
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-4">
         <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
